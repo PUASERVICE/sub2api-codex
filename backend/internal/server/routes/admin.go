@@ -90,9 +90,6 @@ func RegisterAdminRoutes(
 
 		// 渠道管理
 		registerChannelRoutes(admin, h)
-
-		// 模型状态
-		registerModelStatusRoutes(admin, h)
 	}
 }
 
@@ -298,19 +295,6 @@ func registerAccountRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		accounts.POST("/exchange-setup-token-code", h.Admin.OAuth.ExchangeSetupTokenCode)
 		accounts.POST("/cookie-auth", h.Admin.OAuth.CookieAuth)
 		accounts.POST("/setup-token-cookie-auth", h.Admin.OAuth.SetupTokenCookieAuth)
-	}
-}
-
-func registerModelStatusRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
-	modelStatus := admin.Group("/model-status")
-	{
-		modelStatus.GET("/overview", h.Admin.ModelStatus.GetOverview)
-		modelStatus.GET("/targets", h.Admin.ModelStatus.ListTargets)
-		modelStatus.POST("/targets", h.Admin.ModelStatus.CreateTarget)
-		modelStatus.PUT("/targets/:id", h.Admin.ModelStatus.UpdateTarget)
-		modelStatus.DELETE("/targets/:id", h.Admin.ModelStatus.DeleteTarget)
-		modelStatus.POST("/targets/:id/run", h.Admin.ModelStatus.RunTarget)
-		modelStatus.GET("/targets/:id/checks", h.Admin.ModelStatus.ListChecks)
 	}
 }
 

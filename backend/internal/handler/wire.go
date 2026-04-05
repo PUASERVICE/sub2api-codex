@@ -34,7 +34,6 @@ func ProvideAdminHandlers(
 	apiKeyHandler *admin.AdminAPIKeyHandler,
 	scheduledTestHandler *admin.ScheduledTestHandler,
 	channelHandler *admin.ChannelHandler,
-	modelStatusHandler *admin.ModelStatusHandler,
 ) *AdminHandlers {
 	return &AdminHandlers{
 		Dashboard:             dashboardHandler,
@@ -62,7 +61,6 @@ func ProvideAdminHandlers(
 		APIKey:                apiKeyHandler,
 		ScheduledTest:         scheduledTestHandler,
 		Channel:               channelHandler,
-		ModelStatus:           modelStatusHandler,
 	}
 }
 
@@ -126,7 +124,6 @@ var ProviderSet = wire.NewSet(
 	NewGatewayHandler,
 	NewOpenAIGatewayHandler,
 	NewSoraGatewayHandler,
-	NewSoraClientHandler,
 	NewTotpHandler,
 	ProvideSettingHandler,
 
@@ -156,7 +153,6 @@ var ProviderSet = wire.NewSet(
 	admin.NewAdminAPIKeyHandler,
 	admin.NewScheduledTestHandler,
 	admin.NewChannelHandler,
-	admin.NewModelStatusHandler,
 
 	// AdminHandlers and Handlers constructors
 	ProvideAdminHandlers,
