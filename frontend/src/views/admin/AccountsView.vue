@@ -285,8 +285,9 @@
     <ReAuthAccountModal :show="showReAuth" :account="reAuthAcc" @close="closeReAuthModal" @reauthorized="handleAccountUpdated" />
     <AccountTestModal :show="showTest" :account="testingAcc" @close="closeTestModal" />
     <AccountStatsModal :show="showStats" :account="statsAcc" @close="closeStatsModal" />
+    <AccountJsonModal :show="showJson" :account="jsonAcc" @close="closeJsonModal" />
     <ScheduledTestsPanel :show="showSchedulePanel" :account-id="scheduleAcc?.id ?? null" :model-options="scheduleModelOptions" @close="closeSchedulePanel" />
-    <AccountActionMenu :show="menu.show" :account="menu.acc" :position="menu.pos" @close="menu.show = false" @test="handleTest" @stats="handleViewStats" @schedule="handleSchedule" @reauth="handleReAuth" @refresh-token="handleRefresh" @recover-state="handleRecoverState" @reset-quota="handleResetQuota" @set-privacy="handleSetPrivacy" />
+    <AccountActionMenu :show="menu.show" :account="menu.acc" :position="menu.pos" @close="menu.show = false" @test="handleTest" @stats="handleViewStats" @view-json="handleViewJson" @schedule="handleSchedule" @reauth="handleReAuth" @refresh-token="handleRefresh" @recover-state="handleRecoverState" @reset-quota="handleResetQuota" @set-privacy="handleSetPrivacy" />
     <SyncFromCrsModal :show="showSync" @close="showSync = false" @synced="reload" />
     <ImportDataModal :show="showImportData" @close="showImportData = false" @imported="handleDataImported" />
     <BulkEditAccountModal :show="showBulkEdit" :account-ids="selIds" :selected-platforms="selPlatforms" :selected-types="selTypes" :proxies="proxies" :groups="groups" @close="showBulkEdit = false" @updated="handleBulkUpdated" />
@@ -323,6 +324,7 @@ import AccountTableActions from '@/components/admin/account/AccountTableActions.
 import AccountTableFilters from '@/components/admin/account/AccountTableFilters.vue'
 import AccountBulkActionsBar from '@/components/admin/account/AccountBulkActionsBar.vue'
 import AccountActionMenu from '@/components/admin/account/AccountActionMenu.vue'
+import AccountJsonModal from '@/components/admin/account/AccountJsonModal.vue'
 import ImportDataModal from '@/components/admin/account/ImportDataModal.vue'
 import ReAuthAccountModal from '@/components/admin/account/ReAuthAccountModal.vue'
 import AccountTestModal from '@/components/admin/account/AccountTestModal.vue'
@@ -377,6 +379,7 @@ const showDeleteDialog = ref(false)
 const showReAuth = ref(false)
 const showTest = ref(false)
 const showStats = ref(false)
+const showJson = ref(false)
 const showErrorPassthrough = ref(false)
 const showTLSFingerprintProfiles = ref(false)
 const edAcc = ref<Account | null>(null)
@@ -385,6 +388,7 @@ const deletingAcc = ref<Account | null>(null)
 const reAuthAcc = ref<Account | null>(null)
 const testingAcc = ref<Account | null>(null)
 const statsAcc = ref<Account | null>(null)
+const jsonAcc = ref<Account | null>(null)
 const showSchedulePanel = ref(false)
 const scheduleAcc = ref<Account | null>(null)
 const scheduleModelOptions = ref<SelectOption[]>([])
@@ -727,6 +731,7 @@ const syncAccountRefs = (nextAccount: Account) => {
   if (reAuthAcc.value?.id === nextAccount.id) reAuthAcc.value = nextAccount
   if (tempUnschedAcc.value?.id === nextAccount.id) tempUnschedAcc.value = nextAccount
   if (deletingAcc.value?.id === nextAccount.id) deletingAcc.value = nextAccount
+  if (jsonAcc.value?.id === nextAccount.id) jsonAcc.value = nextAccount
   if (menu.acc?.id === nextAccount.id) menu.acc = nextAccount
 }
 
@@ -918,7 +923,7 @@ const openMenu = (a: Account, e: MouseEvent) => {
   if (target) {
     const rect = target.getBoundingClientRect()
     const menuWidth = 200
-    const menuHeight = 240
+    const menuHeight = 280
     const padding = 8
     const viewportWidth = window.innerWidth
     const viewportHeight = window.innerHeight
@@ -1208,9 +1213,11 @@ const handleExportData = async () => {
 }
 const closeTestModal = () => { showTest.value = false; testingAcc.value = null }
 const closeStatsModal = () => { showStats.value = false; statsAcc.value = null }
+const closeJsonModal = () => { showJson.value = false; jsonAcc.value = null }
 const closeReAuthModal = () => { showReAuth.value = false; reAuthAcc.value = null }
 const handleTest = (a: Account) => { testingAcc.value = a; showTest.value = true }
 const handleViewStats = (a: Account) => { statsAcc.value = a; showStats.value = true }
+const handleViewJson = (a: Account) => { jsonAcc.value = a; showJson.value = true }
 const handleSchedule = async (a: Account) => {
   scheduleAcc.value = a
   scheduleModelOptions.value = []
