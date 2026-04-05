@@ -365,6 +365,15 @@ func ProvideScheduledTestRunnerService(
 	return svc
 }
 
+func ProvideModelStatusRunnerService(
+	repo ModelStatusTargetRepository,
+	modelStatusService *ModelStatusService,
+) *ModelStatusRunnerService {
+	svc := NewModelStatusRunnerService(repo, modelStatusService)
+	svc.Start()
+	return svc
+}
+
 // ProvideOpsScheduledReportService creates and starts OpsScheduledReportService.
 func ProvideOpsScheduledReportService(
 	opsService *OpsService,
@@ -426,9 +435,12 @@ var ProviderSet = wire.NewSet(
 	NewAdminService,
 	NewGatewayService,
 	ProvideSoraMediaStorage,
+	NewSoraS3Storage,
 	ProvideSoraMediaCleanupService,
 	ProvideSoraSDKClient,
 	wire.Bind(new(SoraClient), new(*SoraSDKClient)),
+	NewSoraQuotaService,
+	NewSoraGenerationService,
 	NewSoraGatewayService,
 	NewOpenAIGatewayService,
 	NewOAuthService,
@@ -483,6 +495,8 @@ var ProviderSet = wire.NewSet(
 	NewTotpService,
 	NewErrorPassthroughService,
 	NewTLSFingerprintProfileService,
+	NewModelStatusService,
+	ProvideModelStatusRunnerService,
 	NewDigestSessionStore,
 	ProvideIdempotencyCoordinator,
 	ProvideSystemOperationLockService,
