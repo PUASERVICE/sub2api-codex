@@ -1013,6 +1013,10 @@ func load(allowMissingJWTSecret bool) (*Config, error) {
 	// 环境变量支持
 	viper.AutomaticEnv()
 	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
+	// 兼容 Render 等平台注入的 PORT；SERVER_PORT 优先，其次 PORT
+	_ = viper.BindEnv("server.port", "SERVER_PORT", "PORT")
+	_ = viper.BindEnv("server.host", "SERVER_HOST")
+	_ = viper.BindEnv("server.mode", "SERVER_MODE")
 
 	// 默认值
 	setDefaults()
@@ -1411,9 +1415,9 @@ func setDefaults() {
 	viper.SetDefault("gateway.sora_media_signed_url_ttl_seconds", 900)
 	viper.SetDefault("gateway.connection_pool_isolation", ConnectionPoolIsolationAccountProxy)
 	// HTTP 上游连接池配置（默认按轻量部署优化）
-	viper.SetDefault("gateway.max_idle_conns", 128)          // 最大空闲连接总数
-	viper.SetDefault("gateway.max_idle_conns_per_host", 32)  // 每主机最大空闲连接
-	viper.SetDefault("gateway.max_conns_per_host", 128)      // 每主机最大连接数（含活跃）
+	viper.SetDefault("gateway.max_idle_conns", 128)           // 最大空闲连接总数
+	viper.SetDefault("gateway.max_idle_conns_per_host", 32)   // 每主机最大空闲连接
+	viper.SetDefault("gateway.max_conns_per_host", 128)       // 每主机最大连接数（含活跃）
 	viper.SetDefault("gateway.idle_conn_timeout_seconds", 90) // 空闲连接超时（秒）
 	viper.SetDefault("gateway.max_upstream_clients", 5000)
 	viper.SetDefault("gateway.client_idle_ttl_seconds", 900)
@@ -2314,6 +2318,8 @@ func GetServerAddress() string {
 	// Support SERVER_HOST and SERVER_PORT environment variables
 	v.AutomaticEnv()
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
+	_ = v.BindEnv("server.port", "SERVER_PORT", "PORT")
+	_ = v.BindEnv("server.host", "SERVER_HOST")
 	v.SetDefault("server.host", "0.0.0.0")
 	v.SetDefault("server.port", 8080)
 

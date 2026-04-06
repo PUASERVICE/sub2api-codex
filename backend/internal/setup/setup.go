@@ -509,8 +509,29 @@ func generateSecret(length int) (string, error) {
 
 // AutoSetupEnabled checks if auto setup is enabled via environment variable
 func AutoSetupEnabled() bool {
-	val := os.Getenv("AUTO_SETUP")
-	return val == "true" || val == "1" || val == "yes"
+	val := strings.ToLower(strings.TrimSpace(os.Getenv("AUTO_SETUP")))
+	switch val {
+	case "true", "1", "yes", "y", "on":
+		return true
+	case "false", "0", "no", "n", "off":
+		return false
+	}
+
+	// Fallback for container platforms:
+	// when DB/Redis core vars are all present, treat as auto-setup enabled.
+	required := []string{
+		"DATABASE_HOST",
+		"DATABASE_USER",
+		"DATABASE_PASSWORD",
+		"DATABASE_DBNAME",
+		"REDIS_HOST",
+	}
+	for _, key := range required {
+		if strings.TrimSpace(os.Getenv(key)) == "" {
+			return false
+		}
+	}
+	return true
 }
 
 // getEnvOrDefault gets environment variable or returns default value

@@ -97,9 +97,14 @@ func main() {
 }
 
 func runSetupServer() {
+	gin.SetMode(gin.ReleaseMode)
+
 	r := gin.New()
 	r.Use(middleware.Recovery())
-	r.Use(middleware.CORS(config.CORSConfig{}))
+	r.Use(middleware.CORS(config.CORSConfig{
+		AllowedOrigins:   []string{"*"},
+		AllowCredentials: false,
+	}))
 	r.Use(middleware.SecurityHeaders(config.CSPConfig{Enabled: true, Policy: config.DefaultCSPPolicy}, nil))
 
 	// Register setup routes
