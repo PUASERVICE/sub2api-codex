@@ -14,6 +14,8 @@
 
 [English](README.md) | 中文 | [日本語](README_JA.md)
 
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/PUASERVICE/sub2api-codex)
+
 </div>
 
 > **Sub2API 官方仅使用  `sub2api.org` 与 `pincc.ai` 两个域名。其他使用 Sub2API 名义的网站可能为第三方部署或服务，与本项目无关，请自行甄别。**
@@ -160,7 +162,55 @@ curl -sSL https://raw.githubusercontent.com/Wei-Shaw/sub2api/main/deploy/install
 
 ---
 
-### 方式二：Docker Compose（推荐）
+### 方式二：Render（Blueprint + 外部 PostgreSQL/Redis）
+
+可使用上方一键按钮，或直接点击：
+
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/PUASERVICE/sub2api-codex)
+
+本仓库已内置 `render.yaml`（Render Blueprint）。
+
+推荐外部服务：
+- PostgreSQL：Supabase
+- Redis：Upstash
+
+`render.yaml` 中环境变量已做脱敏，适合开源场景：
+- 只预置变量名
+- 值全部留空，需在 Render 控制台填写
+
+#### 环境变量（仅变量名；值请在 Render 中填写）
+
+```bash
+DATABASE_URL=
+REDIS_URL=
+JWT_SECRET=
+TOTP_ENCRYPTION_KEY=
+ADMIN_EMAIL=
+ADMIN_PASSWORD=
+SERVER_HOST=
+SERVER_PORT=
+RUN_MODE=
+TZ=
+```
+
+#### 脱敏格式示例
+
+```bash
+DATABASE_URL=postgres://<user>:<password>@<host>:5432/<database>?sslmode=require
+REDIS_URL=rediss://:<password>@<host>:6379
+```
+
+#### Render 部署步骤
+
+1. 点击 “Deploy to Render”，选择你的仓库。
+2. 使用 `render.yaml` 创建 Web Service。
+3. 在 Render 页面填写环境变量值。
+4. 部署完成后访问 Render 分配的服务地址。
+5. 通过 Web UI 完成初始化（或使用 `ADMIN_EMAIL`/`ADMIN_PASSWORD` 引导创建管理员）。
+
+---
+
+### 方式三：Docker Compose（推荐）
 
 使用 Docker Compose 部署，包含 PostgreSQL 和 Redis 容器。
 
@@ -336,7 +386,7 @@ rm -rf data/ postgres_data/ redis_data/
 
 ---
 
-### 方式三：源码编译
+### 方式四：源码编译
 
 从源码编译安装，适合开发或定制需求。
 

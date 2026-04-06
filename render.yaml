@@ -1,0 +1,29 @@
+services:
+  - type: web
+    name: sub2api
+    env: docker
+    plan: starter
+    dockerfilePath: ./deploy/Dockerfile
+    dockerContext: .
+    autoDeploy: true
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: REDIS_URL
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: TOTP_ENCRYPTION_KEY
+        sync: false
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: SERVER_HOST
+        sync: false
+      - key: SERVER_PORT
+        sync: false
+      - key: RUN_MODE
+        sync: false
+      - key: TZ
+        sync: false

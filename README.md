@@ -14,6 +14,8 @@
 
 English | [中文](README_CN.md) | [日本語](README_JA.md)
 
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/PUASERVICE/sub2api-codex)
+
 </div>
 
 > **Sub2API officially uses only the domains `sub2api.org` and `pincc.ai`. Other websites using the Sub2API name may be third-party deployments or services and are not affiliated with this project. Please verify and exercise your own judgment.**
@@ -161,7 +163,55 @@ curl -sSL https://raw.githubusercontent.com/Wei-Shaw/sub2api/main/deploy/install
 
 ---
 
-### Method 2: Docker Compose (Recommended)
+### Method 2: Render (Blueprint + External PostgreSQL/Redis)
+
+Use the one-click button above, or click here:
+
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/PUASERVICE/sub2api-codex)
+
+This repository includes a `render.yaml` Blueprint for Render deployment.
+
+Recommended external services:
+- PostgreSQL: Supabase
+- Redis: Upstash
+
+The environment variables in `render.yaml` are intentionally desensitized for open-source use:
+- Only variable names are predefined
+- Values are empty and must be filled in Render Dashboard
+
+#### Environment Variables (keys only; fill values in Render)
+
+```bash
+DATABASE_URL=
+REDIS_URL=
+JWT_SECRET=
+TOTP_ENCRYPTION_KEY=
+ADMIN_EMAIL=
+ADMIN_PASSWORD=
+SERVER_HOST=
+SERVER_PORT=
+RUN_MODE=
+TZ=
+```
+
+#### Desensitized Example Formats
+
+```bash
+DATABASE_URL=postgres://<user>:<password>@<host>:5432/<database>?sslmode=require
+REDIS_URL=rediss://:<password>@<host>:6379
+```
+
+#### Render Deployment Steps
+
+1. Click "Deploy to Render" and select your repository.
+2. Create one Web Service from `render.yaml`.
+3. Fill required environment variable values in Render.
+4. Deploy and open your Render service URL.
+5. Complete setup in the web UI (or use `ADMIN_EMAIL`/`ADMIN_PASSWORD` for bootstrap).
+
+---
+
+### Method 3: Docker Compose (Recommended)
 
 Deploy with Docker Compose, including PostgreSQL and Redis containers.
 
@@ -325,7 +375,7 @@ rm -rf data/ postgres_data/ redis_data/
 
 ---
 
-### Method 3: Build from Source
+### Method 4: Build from Source
 
 Build and run from source code for development or customization.
 
