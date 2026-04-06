@@ -8,6 +8,8 @@ services:
     autoDeploy: true
     envVars:
       # Server
+      - key: PORT
+        value: "10000"
       - key: SERVER_PORT
         value: "10000"
       - key: SERVER_FRONTEND_URL
