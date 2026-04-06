@@ -2,7 +2,7 @@ services:
   - type: web
     name: sub2api
     env: docker
-    plan: starter
+    plan: free
     dockerfilePath: ./deploy/Dockerfile
     dockerContext: .
     autoDeploy: true
