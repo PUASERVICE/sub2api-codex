@@ -7,198 +7,23 @@ services:
     dockerContext: .
     autoDeploy: true
     envVars:
-      - key: BIND_HOST
-        sync: false
+      # Server
       - key: SERVER_PORT
+        value: "10000"
+      - key: SERVER_FRONTEND_URL
         sync: false
-      - key: SERVER_MODE
-        sync: false
-      - key: LOG_LEVEL
-        sync: false
-      - key: LOG_FORMAT
-        sync: false
-      - key: LOG_SERVICE_NAME
-        sync: false
-      - key: LOG_ENV
-        sync: false
-      - key: LOG_CALLER
-        sync: false
-      - key: LOG_STACKTRACE_LEVEL
-        sync: false
-      - key: LOG_OUTPUT_TO_STDOUT
-        sync: false
-      - key: LOG_OUTPUT_TO_FILE
-        sync: false
-      - key: LOG_OUTPUT_FILE_PATH
-        sync: false
-      - key: LOG_ROTATION_MAX_SIZE_MB
-        sync: false
-      - key: LOG_ROTATION_MAX_BACKUPS
-        sync: false
-      - key: LOG_ROTATION_MAX_AGE_DAYS
-        sync: false
-      - key: LOG_ROTATION_COMPRESS
-        sync: false
-      - key: LOG_ROTATION_LOCAL_TIME
-        sync: false
-      - key: LOG_SAMPLING_ENABLED
-        sync: false
-      - key: LOG_SAMPLING_INITIAL
-        sync: false
-      - key: LOG_SAMPLING_THEREAFTER
-        sync: false
-      - key: SERVER_MAX_REQUEST_BODY_SIZE
-        sync: false
-      - key: GATEWAY_MAX_BODY_SIZE
-        sync: false
-      - key: SERVER_H2C_ENABLED
-        sync: false
-      - key: SERVER_H2C_MAX_CONCURRENT_STREAMS
-        sync: false
-      - key: SERVER_H2C_IDLE_TIMEOUT
-        sync: false
-      - key: SERVER_H2C_MAX_READ_FRAME_SIZE
-        sync: false
-      - key: SERVER_H2C_MAX_UPLOAD_BUFFER_PER_CONNECTION
-        sync: false
-      - key: SERVER_H2C_MAX_UPLOAD_BUFFER_PER_STREAM
-        sync: false
-      - key: RUN_MODE
-        sync: false
-      - key: TZ
-        sync: false
-      - key: POSTGRES_USER
-        sync: false
-      - key: POSTGRES_PASSWORD
-        sync: false
-      - key: POSTGRES_DB
-        sync: false
-      - key: DATABASE_PORT
-        sync: false
-      - key: POSTGRES_MAX_CONNECTIONS
-        sync: false
-      - key: POSTGRES_SHARED_BUFFERS
-        sync: false
-      - key: POSTGRES_EFFECTIVE_CACHE_SIZE
-        sync: false
-      - key: POSTGRES_MAINTENANCE_WORK_MEM
-        sync: false
-      - key: DATABASE_MAX_OPEN_CONNS
-        sync: false
-      - key: DATABASE_MAX_IDLE_CONNS
-        sync: false
-      - key: DATABASE_CONN_MAX_LIFETIME_MINUTES
-        sync: false
-      - key: DATABASE_CONN_MAX_IDLE_TIME_MINUTES
-        sync: false
-      - key: REDIS_PORT
-        sync: false
-      - key: REDIS_PASSWORD
-        sync: false
-      - key: REDIS_DB
-        sync: false
-      - key: REDIS_MAXCLIENTS
-        sync: false
-      - key: REDIS_POOL_SIZE
-        sync: false
-      - key: REDIS_MIN_IDLE_CONNS
-        sync: false
-      - key: REDIS_ENABLE_TLS
-        sync: false
+      - key: AUTO_SETUP
+        value: "true"
       - key: ADMIN_EMAIL
         sync: false
       - key: ADMIN_PASSWORD
         sync: false
-      - key: JWT_SECRET
-        sync: false
-      - key: JWT_EXPIRE_HOUR
-        sync: false
-      - key: JWT_ACCESS_TOKEN_EXPIRE_MINUTES
-        sync: false
-      - key: TOTP_ENCRYPTION_KEY
-        sync: false
-      - key: RATE_LIMIT_OVERLOAD_COOLDOWN_MINUTES
-        sync: false
-      - key: GATEWAY_FORCE_CODEX_CLI
-        sync: false
-      - key: GATEWAY_MAX_CONNS_PER_HOST
-        sync: false
-      - key: GATEWAY_MAX_IDLE_CONNS
-        sync: false
-      - key: GATEWAY_MAX_IDLE_CONNS_PER_HOST
-        sync: false
-      - key: GATEWAY_SCHEDULING_STICKY_SESSION_MAX_WAITING
-        sync: false
-      - key: GATEWAY_SCHEDULING_STICKY_SESSION_WAIT_TIMEOUT
-        sync: false
-      - key: GATEWAY_SCHEDULING_FALLBACK_WAIT_TIMEOUT
-        sync: false
-      - key: GATEWAY_SCHEDULING_FALLBACK_MAX_WAITING
-        sync: false
-      - key: GATEWAY_SCHEDULING_LOAD_BATCH_ENABLED
-        sync: false
-      - key: GATEWAY_SCHEDULING_SLOT_CLEANUP_INTERVAL
-        sync: false
-      - key: GATEWAY_SCHEDULING_DB_FALLBACK_ENABLED
-        sync: false
-      - key: GATEWAY_SCHEDULING_DB_FALLBACK_TIMEOUT_SECONDS
-        sync: false
-      - key: GATEWAY_SCHEDULING_DB_FALLBACK_MAX_QPS
-        sync: false
-      - key: GATEWAY_SCHEDULING_OUTBOX_POLL_INTERVAL_SECONDS
-        sync: false
-      - key: GATEWAY_SCHEDULING_OUTBOX_LAG_WARN_SECONDS
-        sync: false
-      - key: GATEWAY_SCHEDULING_OUTBOX_LAG_REBUILD_SECONDS
-        sync: false
-      - key: GATEWAY_SCHEDULING_OUTBOX_LAG_REBUILD_FAILURES
-        sync: false
-      - key: GATEWAY_SCHEDULING_OUTBOX_BACKLOG_REBUILD_ROWS
-        sync: false
-      - key: GATEWAY_SCHEDULING_FULL_REBUILD_INTERVAL_SECONDS
-        sync: false
-      - key: DASHBOARD_AGGREGATION_ENABLED
-        sync: false
-      - key: DASHBOARD_AGGREGATION_INTERVAL_SECONDS
-        sync: false
-      - key: DASHBOARD_AGGREGATION_LOOKBACK_SECONDS
-        sync: false
-      - key: DASHBOARD_AGGREGATION_BACKFILL_ENABLED
-        sync: false
-      - key: DASHBOARD_AGGREGATION_BACKFILL_MAX_DAYS
-        sync: false
-      - key: DASHBOARD_AGGREGATION_RECOMPUTE_DAYS
-        sync: false
-      - key: DASHBOARD_AGGREGATION_RETENTION_USAGE_LOGS_DAYS
-        sync: false
-      - key: DASHBOARD_AGGREGATION_RETENTION_HOURLY_DAYS
-        sync: false
-      - key: DASHBOARD_AGGREGATION_RETENTION_DAILY_DAYS
-        sync: false
-      - key: SECURITY_URL_ALLOWLIST_ENABLED
-        sync: false
-      - key: SECURITY_URL_ALLOWLIST_ALLOW_INSECURE_HTTP
-        sync: false
-      - key: SECURITY_URL_ALLOWLIST_ALLOW_PRIVATE_HOSTS
-        sync: false
-      - key: GEMINI_OAUTH_CLIENT_ID
-        sync: false
-      - key: GEMINI_OAUTH_CLIENT_SECRET
-        sync: false
-      - key: GEMINI_OAUTH_SCOPES
-        sync: false
-      - key: GEMINI_QUOTA_POLICY
-        sync: false
-      - key: OPS_ENABLED
-        sync: false
-      - key: UPDATE_PROXY_URL
-        sync: false
-      - key: AUTO_SETUP
-        sync: false
-      - key: SERVER_HOST
-        sync: false
+
+      # Database
       - key: DATABASE_HOST
         sync: false
+      - key: DATABASE_PORT
+        value: "5432"
       - key: DATABASE_USER
         sync: false
       - key: DATABASE_PASSWORD
@@ -206,9 +31,27 @@ services:
       - key: DATABASE_DBNAME
         sync: false
       - key: DATABASE_SSLMODE
-        sync: false
+        value: "require"
+
+      # Redis
       - key: REDIS_HOST
         sync: false
+      - key: REDIS_PORT
+        value: "6379"
+      - key: REDIS_PASSWORD
+        sync: false
+      - key: REDIS_DB
+        value: "0"
+      - key: REDIS_ENABLE_TLS
+        value: "true"
+
+      # Security
+      - key: JWT_SECRET
+        sync: false
+      - key: TOTP_ENCRYPTION_KEY
+        sync: false
+
+      # Model Status sidecar
       - key: MODEL_STATUS_ENABLED
         value: "true"
       - key: MODEL_STATUS_UPSTREAM_API_BASE_URL

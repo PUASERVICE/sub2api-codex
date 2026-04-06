@@ -1144,13 +1144,13 @@ func setDefaults() {
 
 	// Log
 	viper.SetDefault("log.level", "info")
-	viper.SetDefault("log.format", "console")
+	viper.SetDefault("log.format", "json")
 	viper.SetDefault("log.service_name", "sub2api")
 	viper.SetDefault("log.env", "production")
 	viper.SetDefault("log.caller", true)
 	viper.SetDefault("log.stacktrace_level", "error")
 	viper.SetDefault("log.output.to_stdout", true)
-	viper.SetDefault("log.output.to_file", true)
+	viper.SetDefault("log.output.to_file", false)
 	viper.SetDefault("log.output.file_path", "")
 	viper.SetDefault("log.rotation.max_size_mb", 100)
 	viper.SetDefault("log.rotation.max_backups", 10)
@@ -1225,8 +1225,8 @@ func setDefaults() {
 	viper.SetDefault("database.password", "postgres")
 	viper.SetDefault("database.dbname", "sub2api")
 	viper.SetDefault("database.sslmode", "prefer")
-	viper.SetDefault("database.max_open_conns", 256)
-	viper.SetDefault("database.max_idle_conns", 128)
+	viper.SetDefault("database.max_open_conns", 20)
+	viper.SetDefault("database.max_idle_conns", 5)
 	viper.SetDefault("database.conn_max_lifetime_minutes", 30)
 	viper.SetDefault("database.conn_max_idle_time_minutes", 5)
 
@@ -1238,8 +1238,8 @@ func setDefaults() {
 	viper.SetDefault("redis.dial_timeout_seconds", 5)
 	viper.SetDefault("redis.read_timeout_seconds", 3)
 	viper.SetDefault("redis.write_timeout_seconds", 3)
-	viper.SetDefault("redis.pool_size", 1024)
-	viper.SetDefault("redis.min_idle_conns", 128)
+	viper.SetDefault("redis.pool_size", 64)
+	viper.SetDefault("redis.min_idle_conns", 4)
 	viper.SetDefault("redis.enable_tls", false)
 
 	// Ops (vNext)
@@ -1410,10 +1410,10 @@ func setDefaults() {
 	viper.SetDefault("gateway.sora_media_require_api_key", true)
 	viper.SetDefault("gateway.sora_media_signed_url_ttl_seconds", 900)
 	viper.SetDefault("gateway.connection_pool_isolation", ConnectionPoolIsolationAccountProxy)
-	// HTTP 上游连接池配置（针对 5000+ 并发用户优化）
-	viper.SetDefault("gateway.max_idle_conns", 2560)          // 最大空闲连接总数（高并发场景可调大）
-	viper.SetDefault("gateway.max_idle_conns_per_host", 120)  // 每主机最大空闲连接（HTTP/2 场景默认）
-	viper.SetDefault("gateway.max_conns_per_host", 1024)      // 每主机最大连接数（含活跃；流式/HTTP1.1 场景可调大，如 2400+）
+	// HTTP 上游连接池配置（默认按轻量部署优化）
+	viper.SetDefault("gateway.max_idle_conns", 128)          // 最大空闲连接总数
+	viper.SetDefault("gateway.max_idle_conns_per_host", 32)  // 每主机最大空闲连接
+	viper.SetDefault("gateway.max_conns_per_host", 128)      // 每主机最大连接数（含活跃）
 	viper.SetDefault("gateway.idle_conn_timeout_seconds", 90) // 空闲连接超时（秒）
 	viper.SetDefault("gateway.max_upstream_clients", 5000)
 	viper.SetDefault("gateway.client_idle_ttl_seconds", 900)
