@@ -31,14 +31,24 @@
             </div>
           </div>
 
-          <button
-            @click="copyJson"
-            class="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-dark-500 dark:bg-dark-700 dark:text-gray-200 dark:hover:bg-dark-600"
-            :disabled="loading || !prettyJson"
-          >
-            <Icon name="copy" size="sm" />
-            {{ t('common.copy') }}
-          </button>
+          <div class="flex flex-wrap items-center gap-2">
+            <button
+              @click="copyAccessToken"
+              class="inline-flex items-center gap-2 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm font-medium text-sky-700 transition-colors hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-sky-700/60 dark:bg-sky-900/20 dark:text-sky-200 dark:hover:bg-sky-900/30"
+              :disabled="loading || !accessToken"
+            >
+              <Icon name="key" size="sm" />
+              {{ t('admin.accounts.copyAccessToken') }}
+            </button>
+            <button
+              @click="copyJson"
+              class="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-dark-500 dark:bg-dark-700 dark:text-gray-200 dark:hover:bg-dark-600"
+              :disabled="loading || !prettyJson"
+            >
+              <Icon name="copy" size="sm" />
+              {{ t('common.copy') }}
+            </button>
+          </div>
         </div>
 
         <p class="text-xs text-gray-500 dark:text-gray-400">
@@ -119,6 +129,11 @@ const prettyJson = computed(() => {
   return JSON.stringify(fullAccount.value, null, 2)
 })
 
+const accessToken = computed(() => {
+  const value = fullAccount.value?.credentials?.access_token
+  return typeof value === 'string' ? value : ''
+})
+
 const loadAccountJson = async () => {
   if (!props.account?.id) return
   loading.value = true
@@ -136,6 +151,11 @@ const loadAccountJson = async () => {
 const copyJson = async () => {
   if (!prettyJson.value) return
   await copyToClipboard(prettyJson.value, t('admin.accounts.jsonCopied'))
+}
+
+const copyAccessToken = async () => {
+  if (!accessToken.value) return
+  await copyToClipboard(accessToken.value, t('admin.accounts.accessTokenCopied'))
 }
 
 const handleClose = () => {

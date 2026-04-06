@@ -141,7 +141,7 @@
         </div>
       </template>
       <template #table>
-        <AccountBulkActionsBar :selected-ids="selIds" @delete="handleBulkDelete" @reset-status="handleBulkResetStatus" @refresh-token="handleBulkRefreshToken" @edit="showBulkEdit = true" @clear="clearSelection" @select-page="selectPage" @toggle-schedulable="handleBulkToggleSchedulable" />
+        <AccountBulkActionsBar :selected-ids="selIds" @delete="handleBulkDelete" @test-connection="handleBulkTestConnection" @reset-status="handleBulkResetStatus" @refresh-token="handleBulkRefreshToken" @edit="showBulkEdit = true" @clear="clearSelection" @select-page="selectPage" @toggle-schedulable="handleBulkToggleSchedulable" />
         <div ref="accountTableRef" class="flex min-h-0 flex-1 flex-col overflow-hidden">
         <DataTable
           :columns="cols"
@@ -301,6 +301,82 @@
     </ConfirmDialog>
     <ErrorPassthroughRulesModal :show="showErrorPassthrough" @close="showErrorPassthrough = false" />
     <TLSFingerprintProfilesModal :show="showTLSFingerprintProfiles" @close="showTLSFingerprintProfiles = false" />
+    <div
+      v-if="batchTest.show"
+      class="fixed bottom-4 right-4 z-[80] w-[min(28rem,calc(100vw-1rem))] rounded-xl border border-gray-200 bg-white p-4 shadow-2xl dark:border-dark-600 dark:bg-dark-800"
+    >
+      <div class="flex items-center justify-between gap-2">
+        <div>
+          <div class="text-sm font-semibold text-gray-900 dark:text-gray-100">{{ t('admin.accounts.batchTestTitle') }}</div>
+          <div class="text-xs text-gray-500 dark:text-gray-400">
+            {{ batchTest.running ? t('admin.accounts.batchTestRunning') : t('admin.accounts.batchTestCompleted') }}
+          </div>
+        </div>
+        <div class="flex items-center gap-2">
+          <button
+            class="rounded-md border border-gray-200 px-2 py-1 text-xs text-gray-600 hover:bg-gray-50 dark:border-dark-600 dark:text-gray-300 dark:hover:bg-dark-700"
+            @click="batchTest.collapsed = !batchTest.collapsed"
+          >
+            {{ batchTest.collapsed ? t('admin.accounts.batchTestExpand') : t('admin.accounts.batchTestCollapse') }}
+          </button>
+          <button
+            v-if="batchTest.running"
+            class="rounded-md border border-red-200 px-2 py-1 text-xs text-red-600 hover:bg-red-50 dark:border-red-900/40 dark:text-red-300 dark:hover:bg-red-900/20"
+            @click="cancelBulkTestConnection"
+          >
+            {{ t('admin.accounts.batchTestCancel') }}
+          </button>
+          <button
+            v-else
+            class="rounded-md border border-gray-200 px-2 py-1 text-xs text-gray-600 hover:bg-gray-50 dark:border-dark-600 dark:text-gray-300 dark:hover:bg-dark-700"
+            @click="closeBatchTestPanel"
+          >
+            {{ t('admin.accounts.batchTestClose') }}
+          </button>
+        </div>
+      </div>
+
+      <div class="mt-3 h-2 overflow-hidden rounded-full bg-gray-200 dark:bg-dark-600">
+        <div
+          class="h-full rounded-full bg-primary-500 transition-all"
+          :style="{ width: `${batchTestProgressPercent}%` }"
+        />
+      </div>
+
+      <div class="mt-2 flex items-center justify-between text-xs text-gray-600 dark:text-gray-300">
+        <span>{{ batchTest.completed }}/{{ batchTest.total }}</span>
+        <span>{{ batchTestProgressPercent }}%</span>
+      </div>
+
+      <div class="mt-2 flex items-center gap-3 text-xs text-gray-600 dark:text-gray-300">
+        <span>{{ t('common.success') }}: {{ batchTest.success }}</span>
+        <span>{{ t('common.error') }}: {{ batchTest.failed }}</span>
+      </div>
+
+      <div
+        v-if="batchTest.running && batchTest.currentAccountName"
+        class="mt-2 text-xs text-gray-500 dark:text-gray-400"
+      >
+        {{ t('admin.accounts.batchTestCurrent', { name: batchTest.currentAccountName }) }}
+      </div>
+
+      <div v-if="!batchTest.collapsed" class="mt-3 max-h-52 overflow-y-auto rounded-lg border border-gray-100 p-2 dark:border-dark-600">
+        <div class="mb-2 text-xs font-medium text-gray-700 dark:text-gray-200">{{ t('admin.accounts.batchTestFailedList') }}</div>
+        <div
+          v-if="batchTestFailedResults.length === 0"
+          class="text-xs text-gray-500 dark:text-gray-400"
+        >
+          {{ t('admin.accounts.batchTestNoFailed') }}
+        </div>
+        <div
+          v-for="item in batchTestFailedResults"
+          :key="item.accountId"
+          class="mb-1 rounded bg-red-50 px-2 py-1 text-xs text-red-700 last:mb-0 dark:bg-red-900/20 dark:text-red-300"
+        >
+          {{ item.accountName }}: {{ item.error || t('admin.accounts.testFailed') }}
+        </div>
+      </div>
+    </div>
   </AppLayout>
 </template>
 
@@ -425,6 +501,40 @@ const todayStatsError = ref<string | null>(null)
 const todayStatsReqSeq = ref(0)
 const pendingTodayStatsRefresh = ref(false)
 const usageManualRefreshToken = ref(0)
+
+interface BatchConnectionTestResult {
+  accountId: number
+  accountName: string
+  success: boolean
+  error?: string
+  durationMs: number
+}
+
+interface AccountTestSSEEvent {
+  type?: string
+  success?: boolean
+  error?: string
+}
+
+const BATCH_TEST_CONCURRENCY = 3
+const batchTest = reactive({
+  show: false,
+  collapsed: false,
+  running: false,
+  total: 0,
+  completed: 0,
+  success: 0,
+  failed: 0,
+  currentAccountName: '',
+  results: [] as BatchConnectionTestResult[]
+})
+const batchTestStopRequested = ref(false)
+const batchTestAbortControllers = new Map<number, AbortController>()
+const batchTestProgressPercent = computed(() => {
+  if (batchTest.total <= 0) return 0
+  return Math.min(100, Math.round((batchTest.completed / batchTest.total) * 100))
+})
+const batchTestFailedResults = computed(() => batchTest.results.filter(item => !item.success))
 
 const buildDefaultTodayStats = (): WindowStats => ({
   requests: 0,
@@ -1004,6 +1114,174 @@ const handleBulkRefreshToken = async () => {
     appStore.showError(String(error))
   }
 }
+const closeBatchTestPanel = () => {
+  if (batchTest.running) {
+    batchTest.collapsed = true
+    return
+  }
+  batchTest.show = false
+}
+const cancelBulkTestConnection = () => {
+  if (!batchTest.running) return
+  batchTestStopRequested.value = true
+  for (const controller of batchTestAbortControllers.values()) {
+    controller.abort()
+  }
+  batchTestAbortControllers.clear()
+}
+const runSingleAccountConnectionTest = async (accountID: number, signal: AbortSignal): Promise<{ success: boolean; error?: string }> => {
+  try {
+    const authToken = localStorage.getItem('auth_token')
+    const response = await fetch(`/api/v1/admin/accounts/${accountID}/test`, {
+      method: 'POST',
+      headers: {
+        ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({}),
+      signal
+    })
+
+    if (!response.ok) {
+      return { success: false, error: `HTTP ${response.status}` }
+    }
+
+    const reader = response.body?.getReader()
+    if (!reader) {
+      return { success: false, error: t('admin.accounts.batchTestUnexpectedEnd') }
+    }
+
+    const decoder = new TextDecoder()
+    let buffer = ''
+    let receivedTerminalEvent = false
+    let passed = false
+    let errorMessage = ''
+
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split('\n')
+      buffer = lines.pop() || ''
+
+      for (const line of lines) {
+        if (!line.startsWith('data:')) continue
+        const jsonStr = line.slice(5).trim()
+        if (!jsonStr) continue
+        try {
+          const event = JSON.parse(jsonStr) as AccountTestSSEEvent
+          if (event.type === 'test_complete') {
+            receivedTerminalEvent = true
+            passed = Boolean(event.success)
+            if (!passed) {
+              errorMessage = event.error || t('admin.accounts.testFailed')
+            }
+          } else if (event.type === 'error') {
+            receivedTerminalEvent = true
+            passed = false
+            errorMessage = event.error || t('admin.accounts.testFailed')
+          }
+        } catch (error) {
+          console.error('Failed to parse batch test SSE event:', error)
+        }
+      }
+    }
+
+    if (!receivedTerminalEvent) {
+      return { success: false, error: t('admin.accounts.batchTestUnexpectedEnd') }
+    }
+    if (!passed) {
+      return { success: false, error: errorMessage || t('admin.accounts.testFailed') }
+    }
+    return { success: true }
+  } catch (error: any) {
+    if (error?.name === 'AbortError') {
+      return { success: false, error: t('admin.accounts.batchTestCanceledItem') }
+    }
+    return { success: false, error: error?.message || t('admin.accounts.testFailed') }
+  }
+}
+const handleBulkTestConnection = async () => {
+  if (batchTest.running) return
+  const accountIDs = [...selIds.value]
+  if (accountIDs.length === 0) {
+    appStore.showError(t('admin.accounts.batchTestEmpty'))
+    return
+  }
+
+  batchTest.show = true
+  batchTest.collapsed = false
+  batchTest.running = true
+  batchTest.total = accountIDs.length
+  batchTest.completed = 0
+  batchTest.success = 0
+  batchTest.failed = 0
+  batchTest.currentAccountName = ''
+  batchTest.results = []
+  batchTestStopRequested.value = false
+  batchTestAbortControllers.clear()
+
+  appStore.showSuccess(t('admin.accounts.batchTestStarted', { count: accountIDs.length }))
+
+  const accountNameMap = new Map(accounts.value.map(account => [account.id, account.name]))
+  let cursor = 0
+
+  const worker = async () => {
+    while (!batchTestStopRequested.value) {
+      const nextIndex = cursor
+      cursor += 1
+      if (nextIndex >= accountIDs.length) return
+
+      const accountID = accountIDs[nextIndex]
+      const accountName = accountNameMap.get(accountID) || `#${accountID}`
+      batchTest.currentAccountName = accountName
+
+      const controller = new AbortController()
+      batchTestAbortControllers.set(accountID, controller)
+      const startedAt = Date.now()
+      const result = await runSingleAccountConnectionTest(accountID, controller.signal)
+      batchTestAbortControllers.delete(accountID)
+
+      if (batchTestStopRequested.value) return
+
+      const row: BatchConnectionTestResult = {
+        accountId: accountID,
+        accountName,
+        success: result.success,
+        error: result.error,
+        durationMs: Date.now() - startedAt
+      }
+      batchTest.results.push(row)
+      batchTest.completed += 1
+      if (row.success) batchTest.success += 1
+      else batchTest.failed += 1
+    }
+  }
+
+  const workers = Array.from(
+    { length: Math.min(BATCH_TEST_CONCURRENCY, accountIDs.length) },
+    () => worker()
+  )
+
+  await Promise.all(workers)
+  batchTest.running = false
+  batchTest.currentAccountName = ''
+
+  if (batchTestStopRequested.value) {
+    appStore.showError(
+      t('admin.accounts.batchTestCanceled', { completed: batchTest.completed, total: batchTest.total })
+    )
+    return
+  }
+
+  appStore.showSuccess(
+    t('admin.accounts.batchTestFinished', {
+      success: batchTest.success,
+      failed: batchTest.failed
+    })
+  )
+}
 const updateSchedulableInList = (accountIds: number[], schedulable: boolean) => {
   if (accountIds.length === 0) return
   const idSet = new Set(accountIds)
@@ -1352,6 +1630,11 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+  batchTestStopRequested.value = true
+  for (const controller of batchTestAbortControllers.values()) {
+    controller.abort()
+  }
+  batchTestAbortControllers.clear()
   window.removeEventListener('scroll', handleScroll, true)
   document.removeEventListener('click', handleClickOutside)
 })
