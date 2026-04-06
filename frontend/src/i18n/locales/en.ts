@@ -342,6 +342,7 @@ export default {
     proxies: 'Proxies',
     redeemCodes: 'Redeem Codes',
     ops: 'Ops',
+    modelStatus: 'Model Status',
     promoCodes: 'Promo Codes',
     settings: 'Settings',
     myAccount: 'My Account',
@@ -355,6 +356,12 @@ export default {
     buySubscription: 'Recharge / Subscription',
     docs: 'Docs',
     sora: 'Sora Studio'
+  },
+
+  modelStatus: {
+    title: 'Model Status',
+    description: 'View model probe and availability status',
+    openInNewTab: 'Open in new tab'
   },
 
   // Auth

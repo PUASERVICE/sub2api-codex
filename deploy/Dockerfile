@@ -8,7 +8,6 @@
 
 ARG NODE_IMAGE=node:24-alpine
 ARG GOLANG_IMAGE=golang:1.26.1-alpine
-ARG ALPINE_IMAGE=alpine:3.20
 ARG GOPROXY=https://goproxy.cn,direct
 ARG GOSUMDB=sum.golang.google.cn
 
@@ -68,9 +67,28 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
     ./cmd/server
 
 # -----------------------------------------------------------------------------
-# Stage 3: Final Runtime Image
+# Stage 3: Model Status Builder
 # -----------------------------------------------------------------------------
-FROM ${ALPINE_IMAGE}
+FROM ${NODE_IMAGE} AS model-status-deps
+
+WORKDIR /app/model-status
+
+# Install dependencies first (better caching)
+COPY third_party/model-status/package.json third_party/model-status/package-lock.json ./
+COPY third_party/model-status/apps/api/package.json ./apps/api/package.json
+COPY third_party/model-status/apps/web/package.json ./apps/web/package.json
+COPY third_party/model-status/packages/shared/package.json ./packages/shared/package.json
+RUN npm ci
+
+FROM model-status-deps AS model-status-builder
+
+COPY third_party/model-status/ ./
+RUN npm run build
+
+# -----------------------------------------------------------------------------
+# Stage 4: Final Runtime Image
+# -----------------------------------------------------------------------------
+FROM ${NODE_IMAGE}
 
 # Labels
 LABEL maintainer="Wei-Shaw <github.com/Wei-Shaw>"
@@ -94,6 +112,8 @@ WORKDIR /app
 
 # Copy binary from builder
 COPY --from=backend-builder /app/sub2api /app/sub2api
+# Copy model-status runtime bundle
+COPY --from=model-status-builder /app/model-status /app/model-status
 
 # Create data directory
 RUN mkdir -p /app/data && chown -R sub2api:sub2api /app
