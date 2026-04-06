@@ -6,14 +6,31 @@ start_model_status_sidecar() {
         return 0
     fi
 
+    if [ ! -d /app/model-status ]; then
+        echo "[model-status] enabled but /app/model-status not found, skip sidecar startup"
+        return 0
+    fi
+
+    for cmd in node npm curl; do
+        if ! command -v "$cmd" >/dev/null 2>&1; then
+            echo "[model-status] enabled but missing runtime command: $cmd, skip sidecar startup"
+            return 0
+        fi
+    done
+
     required_vars="MODEL_STATUS_UPSTREAM_API_BASE_URL MODEL_STATUS_UPSTREAM_API_KEY MODEL_STATUS_ADMIN_BOOTSTRAP_PASSWORD MODEL_STATUS_SESSION_SECRET"
+    missing_required=0
     for var in $required_vars; do
         eval "value=\${$var:-}"
         if [ -z "$value" ]; then
             echo "[model-status] missing required env: $var"
-            exit 1
+            missing_required=1
         fi
     done
+    if [ "$missing_required" -eq 1 ]; then
+        echo "[model-status] required env not complete, skip sidecar startup"
+        return 0
+    fi
 
     MODEL_STATUS_HOST="127.0.0.1"
     MODEL_STATUS_PORT="3001"
@@ -66,7 +83,8 @@ start_model_status_sidecar() {
         if [ "$i" -eq 60 ]; then
             echo "[model-status] failed to become healthy, last log lines:"
             tail -n 80 /tmp/model-status.log || true
-            exit 1
+            echo "[model-status] sidecar startup failed, continue without sidecar"
+            return 0
         fi
     done
 
