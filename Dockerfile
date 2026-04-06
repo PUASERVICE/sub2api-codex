@@ -110,9 +110,9 @@ RUN apk add --no-cache \
     postgresql-client \
     && rm -rf /var/cache/apk/*
 
-# Create non-root user
-RUN addgroup -g 1000 sub2api && \
-    adduser -u 1000 -G sub2api -s /bin/sh -D sub2api
+# Create non-root user (avoid fixed uid/gid conflicts in base image)
+RUN addgroup -S sub2api && \
+    adduser -S -G sub2api -s /bin/sh sub2api
 
 # Set working directory
 WORKDIR /app
