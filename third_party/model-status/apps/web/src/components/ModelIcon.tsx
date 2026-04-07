@@ -1,25 +1,5 @@
-import { useId, type ComponentType, type CSSProperties } from "react";
-import ClaudeAvatar from "@lobehub/icons/es/Claude/components/Avatar";
-import DeepSeekAvatar from "@lobehub/icons/es/DeepSeek/components/Avatar";
-import GeminiAvatar from "@lobehub/icons/es/Gemini/components/Avatar";
-import GroqAvatar from "@lobehub/icons/es/Groq/components/Avatar";
-import KimiAvatar from "@lobehub/icons/es/Kimi/components/Avatar";
-import MetaAvatar from "@lobehub/icons/es/Meta/components/Avatar";
-import MinimaxAvatar from "@lobehub/icons/es/Minimax/components/Avatar";
-import MistralAvatar from "@lobehub/icons/es/Mistral/components/Avatar";
-import MoonshotAvatar from "@lobehub/icons/es/Moonshot/components/Avatar";
-import OpenAIAvatar from "@lobehub/icons/es/OpenAI/components/Avatar";
-import OpenRouterAvatar from "@lobehub/icons/es/OpenRouter/components/Avatar";
-import QwenAvatar from "@lobehub/icons/es/Qwen/components/Avatar";
-import VertexAIAvatar from "@lobehub/icons/es/VertexAI/components/Avatar";
-import XAIAvatar from "@lobehub/icons/es/XAI/components/Avatar";
-import ZAIAvatar from "@lobehub/icons/es/ZAI/components/Avatar";
-import ZhipuAvatar from "@lobehub/icons/es/Zhipu/components/Avatar";
-import IconAvatar from "@lobehub/icons/es/features/IconAvatar";
+import { useId, type CSSProperties } from "react";
 import { Bot } from "lucide-react";
-
-type IconComponent = ComponentType<{ size: number; className?: string }>;
-type OpenAIAvatarType = "normal" | "gpt3" | "gpt4" | "gpt5" | "o1" | "o3" | "oss" | "platform";
 
 export type ModelIconKey =
   | "auto"
@@ -62,22 +42,42 @@ export const MODEL_ICON_OPTIONS: Array<{ value: ModelIconKey; label: string }> =
   { value: "zai", label: "Z.ai" },
 ];
 
-const MODEL_ICON_COMPONENTS: Record<Exclude<ModelIconKey, "auto" | "openai" | "codex">, IconComponent> = {
-  claude: ClaudeAvatar,
-  gemini: GeminiAvatar,
-  vertexai: VertexAIAvatar,
-  groq: GroqAvatar,
-  xai: XAIAvatar,
-  mistral: MistralAvatar,
-  qwen: QwenAvatar,
-  kimi: KimiAvatar,
-  moonshot: MoonshotAvatar,
-  deepseek: DeepSeekAvatar,
-  meta: MetaAvatar,
-  openrouter: OpenRouterAvatar,
-  minimax: MinimaxAvatar,
-  zhipu: ZhipuAvatar,
-  zai: ZAIAvatar,
+const MODEL_ICON_GLYPHS: Record<Exclude<ModelIconKey, "auto" | "codex">, string> = {
+  openai: "O",
+  claude: "C",
+  gemini: "G",
+  vertexai: "V",
+  groq: "GR",
+  xai: "x",
+  mistral: "M",
+  qwen: "Q",
+  kimi: "K",
+  moonshot: "MS",
+  deepseek: "DS",
+  meta: "∞",
+  openrouter: "OR",
+  minimax: "MM",
+  zhipu: "ZP",
+  zai: "Z",
+};
+
+const MODEL_ICON_COLORS: Record<Exclude<ModelIconKey, "auto" | "codex">, { bg: string; fg: string }> = {
+  openai: { bg: "#111827", fg: "#ffffff" },
+  claude: { bg: "#f59e0b", fg: "#111827" },
+  gemini: { bg: "#7c3aed", fg: "#ffffff" },
+  vertexai: { bg: "#2563eb", fg: "#ffffff" },
+  groq: { bg: "#0f172a", fg: "#ffffff" },
+  xai: { bg: "#0f172a", fg: "#ffffff" },
+  mistral: { bg: "#ea580c", fg: "#ffffff" },
+  qwen: { bg: "#06b6d4", fg: "#0f172a" },
+  kimi: { bg: "#10b981", fg: "#052e16" },
+  moonshot: { bg: "#f97316", fg: "#111827" },
+  deepseek: { bg: "#2563eb", fg: "#ffffff" },
+  meta: { bg: "#1d4ed8", fg: "#ffffff" },
+  openrouter: { bg: "#334155", fg: "#ffffff" },
+  minimax: { bg: "#6b21a8", fg: "#ffffff" },
+  zhipu: { bg: "#0ea5e9", fg: "#082f49" },
+  zai: { bg: "#84cc16", fg: "#1a2e05" },
 };
 
 function normalizeIconKey(value: string | null | undefined): ModelIconKey | null {
@@ -111,15 +111,6 @@ function detectIconKey(modelId: string, ownedBy: string | null): Exclude<ModelIc
   if (haystack.includes("gpt") || haystack.includes("o1") || haystack.includes("o3") || haystack.includes("openai")) return "openai";
 
   return null;
-}
-
-function resolveOpenAIAvatarType(modelId: string): OpenAIAvatarType {
-  const normalized = modelId.toLowerCase();
-  if (normalized.includes("gpt")) return "normal";
-  if (normalized.includes("o1")) return "o1";
-  if (normalized.includes("o3")) return "o3";
-  if (normalized.includes("oss")) return "oss";
-  return "normal";
 }
 
 function isDarkThemeActive(): boolean {
@@ -171,6 +162,40 @@ function UniqueCodexInner({
   );
 }
 
+function FallbackBadge({
+  keyName,
+  size,
+  className,
+}: {
+  keyName: Exclude<ModelIconKey, "auto" | "codex">;
+  size: number;
+  className?: string;
+}) {
+  const glyph = MODEL_ICON_GLYPHS[keyName];
+  const { bg, fg } = MODEL_ICON_COLORS[keyName];
+  const fontSize = Math.max(10, Math.round(size * 0.45));
+  const style: CSSProperties = {
+    width: size,
+    height: size,
+    borderRadius: "9999px",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    fontSize,
+    fontWeight: 700,
+    lineHeight: 1,
+    background: bg,
+    color: fg,
+    letterSpacing: glyph.length > 1 ? -0.4 : 0,
+    flex: "none",
+  };
+  return (
+    <span aria-hidden className={className} style={style}>
+      {glyph}
+    </span>
+  );
+}
+
 export function resolveModelIconKey(icon: string | null | undefined, modelId: string, ownedBy: string | null): Exclude<ModelIconKey, "auto"> | null {
   const normalized = normalizeIconKey(icon);
   if (normalized && normalized !== "auto") {
@@ -198,33 +223,28 @@ export function ModelIcon({
     return <Bot size={size} className={className} />;
   }
 
-  if (resolvedKey === "openai") {
-    const darkTheme = isDarkThemeActive();
-    return (
-      <OpenAIAvatar
-        size={size}
-        className={className}
-        type={resolveOpenAIAvatarType(modelId)}
-        background={darkTheme ? "#ffffff" : "#000000"}
-        color={darkTheme ? "#000000" : "#ffffff"}
-      />
-    );
-  }
-
   if (resolvedKey === "codex") {
     const darkTheme = isDarkThemeActive();
     return (
-      <IconAvatar
-        Icon={UniqueCodexInner as never}
-        size={size}
+      <span
+        aria-hidden
         className={className}
-        background="#ffffff"
-        color={darkTheme ? "#111827" : "#ffffff"}
-        iconMultiple={0.88}
-      />
+        style={{
+          width: size,
+          height: size,
+          borderRadius: "9999px",
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+          background: darkTheme ? "#ffffff" : "#111827",
+          color: darkTheme ? "#111827" : "#ffffff",
+          flex: "none",
+        }}
+      >
+        <UniqueCodexInner size={Math.max(12, Math.round(size * 0.88))} />
+      </span>
     );
   }
 
-  const IconComponent = MODEL_ICON_COMPONENTS[resolvedKey];
-  return <IconComponent size={size} className={className} />;
+  return <FallbackBadge keyName={resolvedKey} size={size} className={className} />;
 }

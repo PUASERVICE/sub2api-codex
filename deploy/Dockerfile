@@ -49,7 +49,8 @@ ENV GOPROXY=${GOPROXY}
 ENV GOSUMDB=${GOSUMDB}
 
 # Install build dependencies
-RUN apk add --no-cache git ca-certificates tzdata
+RUN apk add --update-cache --no-progress git ca-certificates tzdata \
+    && rm -rf /var/cache/apk/*
 
 WORKDIR /app/backend
 
@@ -85,6 +86,12 @@ FROM ${NODE_IMAGE} AS model-status-deps
 
 WORKDIR /app/model-status
 
+# Reduce npm non-critical warning noise in CI/build logs.
+ENV npm_config_loglevel=error \
+    npm_config_fund=false \
+    npm_config_audit=false \
+    npm_config_update_notifier=false
+
 # Install dependencies first (better caching)
 COPY third_party/model-status/package.json third_party/model-status/package-lock.json ./
 COPY third_party/model-status/apps/api/package.json ./apps/api/package.json
@@ -109,7 +116,7 @@ LABEL description="Sub2API - AI API Gateway Platform"
 LABEL org.opencontainers.image.source="https://github.com/Wei-Shaw/sub2api"
 
 # Install runtime dependencies
-RUN apk add --no-cache \
+RUN apk add --update-cache --no-progress \
     ca-certificates \
     tzdata \
     curl \
