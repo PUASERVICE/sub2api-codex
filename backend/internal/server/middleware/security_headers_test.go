@@ -129,6 +129,8 @@ func TestSecurityHeaders(t *testing.T) {
 		assert.Contains(t, csp, "default-src 'self'")
 		assert.Contains(t, csp, "'nonce-")
 		assert.Contains(t, csp, CloudflareInsightsDomain)
+		assert.Contains(t, csp, "frame-src")
+		assert.Contains(t, csp, "frame-src 'self'")
 	})
 
 	t.Run("api_route_skips_csp_nonce_generation", func(t *testing.T) {
@@ -147,6 +149,24 @@ func TestSecurityHeaders(t *testing.T) {
 		assert.Equal(t, "nosniff", w.Header().Get("X-Content-Type-Options"))
 		assert.Equal(t, "DENY", w.Header().Get("X-Frame-Options"))
 		assert.Equal(t, "strict-origin-when-cross-origin", w.Header().Get("Referrer-Policy"))
+		assert.Empty(t, w.Header().Get("Content-Security-Policy"))
+		assert.Empty(t, GetNonceFromContext(c))
+	})
+
+	t.Run("model_status_route_allows_same_origin_iframe_and_skips_csp", func(t *testing.T) {
+		cfg := config.CSPConfig{
+			Enabled: true,
+			Policy:  "default-src 'self'; script-src 'self' __CSP_NONCE__",
+		}
+		middleware := SecurityHeaders(cfg, nil)
+
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		c.Request = httptest.NewRequest(http.MethodGet, "/status", nil)
+
+		middleware(c)
+
+		assert.Equal(t, "SAMEORIGIN", w.Header().Get("X-Frame-Options"))
 		assert.Empty(t, w.Header().Get("Content-Security-Policy"))
 		assert.Empty(t, GetNonceFromContext(c))
 	})
@@ -294,6 +314,7 @@ func TestEnhanceCSPPolicy(t *testing.T) {
 
 		assert.Contains(t, enhanced, NonceTemplate)
 		assert.Contains(t, enhanced, CloudflareInsightsDomain)
+		assert.Contains(t, enhanced, "frame-src 'self'")
 	})
 
 	t.Run("does_not_duplicate_nonce_placeholder", func(t *testing.T) {
@@ -329,6 +350,14 @@ func TestEnhanceCSPPolicy(t *testing.T) {
 		// Should not add placeholder if nonce already exists
 		assert.NotContains(t, enhanced, NonceTemplate)
 		assert.Contains(t, enhanced, "'nonce-existing'")
+	})
+
+	t.Run("does_not_duplicate_frame_src_self", func(t *testing.T) {
+		policy := "default-src 'self'; frame-src 'self' https://example.com"
+		enhanced := enhanceCSPPolicy(policy)
+
+		count := strings.Count(enhanced, "frame-src 'self'")
+		assert.Equal(t, 1, count)
 	})
 }
 

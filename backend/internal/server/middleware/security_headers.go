@@ -63,9 +63,14 @@ func SecurityHeaders(cfg config.CSPConfig, getFrameSrcOrigins func() []string) g
 		}
 
 		c.Header("X-Content-Type-Options", "nosniff")
-		c.Header("X-Frame-Options", "DENY")
+		if isModelStatusPath(c) {
+			// /status 页面需要被后台管理页以内嵌 iframe 打开
+			c.Header("X-Frame-Options", "SAMEORIGIN")
+		} else {
+			c.Header("X-Frame-Options", "DENY")
+		}
 		c.Header("Referrer-Policy", "strict-origin-when-cross-origin")
-		if isAPIRoutePath(c) {
+		if isAPIRoutePath(c) || isModelStatusPath(c) {
 			c.Next()
 			return
 		}
@@ -84,6 +89,14 @@ func SecurityHeaders(cfg config.CSPConfig, getFrameSrcOrigins func() []string) g
 		}
 		c.Next()
 	}
+}
+
+func isModelStatusPath(c *gin.Context) bool {
+	if c == nil || c.Request == nil || c.Request.URL == nil {
+		return false
+	}
+	path := c.Request.URL.Path
+	return path == "/status" || strings.HasPrefix(path, "/status/")
 }
 
 func isAPIRoutePath(c *gin.Context) bool {
@@ -111,12 +124,40 @@ func enhanceCSPPolicy(policy string) string {
 		policy = addToDirective(policy, "script-src", CloudflareInsightsDomain)
 	}
 
+	// Model Status 页面通过同源 iframe (/admin/model-status -> /status) 打开，
+	// 需要 frame-src 允许 self。
+	if !directiveContainsToken(policy, "frame-src", "'self'") {
+		policy = addToDirective(policy, "frame-src", "'self'")
+	}
+
 	return policy
+}
+
+func directiveContainsToken(policy, directive, token string) bool {
+	directivePrefix := directive + " "
+	idx := strings.Index(policy, directivePrefix)
+	if idx == -1 {
+		return false
+	}
+
+	endIdx := strings.Index(policy[idx:], ";")
+	if endIdx == -1 {
+		segment := policy[idx:]
+		return strings.Contains(segment, token)
+	}
+
+	segment := policy[idx : idx+endIdx]
+	return strings.Contains(segment, token)
 }
 
 // addToDirective adds a value to a specific CSP directive.
 // If the directive doesn't exist, it will be added after default-src.
 func addToDirective(policy, directive, value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return policy
+	}
+
 	// Find the directive in the policy
 	directivePrefix := directive + " "
 	idx := strings.Index(policy, directivePrefix)
@@ -130,19 +171,34 @@ func addToDirective(policy, directive, value string) string {
 			if endIdx != -1 {
 				insertPos := defaultSrcIdx + endIdx + 1
 				// Insert new directive after default-src
+				if value == "'self'" {
+					return policy[:insertPos] + " " + directive + " 'self';" + policy[insertPos:]
+				}
 				return policy[:insertPos] + " " + directive + " 'self' " + value + ";" + policy[insertPos:]
 			}
 		}
 		// Fallback: prepend the directive
+		if value == "'self'" {
+			return directive + " 'self'; " + policy
+		}
 		return directive + " 'self' " + value + "; " + policy
 	}
 
 	// Find the end of this directive (next semicolon or end of string)
 	endIdx := strings.Index(policy[idx:], ";")
+	var segment string
 
 	if endIdx == -1 {
 		// No semicolon found, directive goes to end of string
+		segment = policy[idx:]
+		if strings.Contains(segment, value) {
+			return policy
+		}
 		return policy + " " + value
+	}
+	segment = policy[idx : idx+endIdx]
+	if strings.Contains(segment, value) {
+		return policy
 	}
 
 	// Insert value before the semicolon

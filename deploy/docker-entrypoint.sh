@@ -59,17 +59,22 @@ start_model_status_sidecar() {
 
     echo "[model-status] starting sidecar on ${MODEL_STATUS_HOST}:${MODEL_STATUS_PORT}"
     (
-        cd /app/model-status
-        HOST="$MODEL_STATUS_HOST" \
-        PORT="$MODEL_STATUS_PORT" \
-        WEB_ORIGIN="$WEB_ORIGIN_VALUE" \
-        ACCESS_URL="$ACCESS_URL_VALUE" \
-        DATABASE_FILE="$MODEL_STATUS_DATABASE_FILE" \
-        ADMIN_BOOTSTRAP_USERNAME="$MODEL_STATUS_ADMIN_BOOTSTRAP_USERNAME" \
-        ADMIN_BOOTSTRAP_PASSWORD="$MODEL_STATUS_ADMIN_BOOTSTRAP_PASSWORD" \
-        SESSION_SECRET="$MODEL_STATUS_SESSION_SECRET" \
-        MODEL_STATUS_MODELS="${MODEL_STATUS_MODELS:-}" \
-        npm run start
+        while true; do
+            cd /app/model-status
+            HOST="$MODEL_STATUS_HOST" \
+            PORT="$MODEL_STATUS_PORT" \
+            WEB_ORIGIN="$WEB_ORIGIN_VALUE" \
+            ACCESS_URL="$ACCESS_URL_VALUE" \
+            DATABASE_FILE="$MODEL_STATUS_DATABASE_FILE" \
+            ADMIN_BOOTSTRAP_USERNAME="$MODEL_STATUS_ADMIN_BOOTSTRAP_USERNAME" \
+            ADMIN_BOOTSTRAP_PASSWORD="$MODEL_STATUS_ADMIN_BOOTSTRAP_PASSWORD" \
+            SESSION_SECRET="$MODEL_STATUS_SESSION_SECRET" \
+            MODEL_STATUS_MODELS="${MODEL_STATUS_MODELS:-}" \
+            npm run start
+            code=$?
+            echo "[model-status] sidecar exited with code ${code}, restarting in 2s"
+            sleep 2
+        done
     ) >/tmp/model-status.log 2>&1 &
     MODEL_STATUS_PID=$!
     echo "[model-status] pid=${MODEL_STATUS_PID}"

@@ -463,12 +463,15 @@ function MobileModelListItem({
 }
 
 export function PublicDashboard() {
+  const RETRY_BASE_DELAY_MS = 3000;
+  const RETRY_MAX_DELAY_MS = 15000;
   const [range, setRange] = useState<DashboardRange>(getInitialRange);
   const [viewMode, setViewMode] = useState<ViewMode>(getInitialViewMode);
   const [theme, setTheme] = useState<ThemeMode>(getInitialTheme);
   const [language, setLanguage] = useState<Language>(() => normalizeLanguage(localStorage.getItem("lang")));
   const [data, setData] = useState<DashboardResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [errorRetryCount, setErrorRetryCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [scheduleExpired, setScheduleExpired] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
@@ -487,7 +490,9 @@ export function PublicDashboard() {
 
       const json = (await response.json()) as DashboardResponse;
       setData(json);
+      setErrorRetryCount(0);
     } catch (err) {
+      setErrorRetryCount((current) => current + 1);
       setError(err instanceof Error ? err.message : copy.unknownError);
     } finally {
       setLoading(false);
@@ -514,6 +519,19 @@ export function PublicDashboard() {
   useEffect(() => {
     void fetchData();
   }, [fetchData]);
+
+  useEffect(() => {
+    if (!error || data) {
+      return;
+    }
+
+    const retryDelayMs = Math.min(RETRY_MAX_DELAY_MS, RETRY_BASE_DELAY_MS * Math.max(1, errorRetryCount));
+    const retryTimer = setTimeout(() => {
+      void fetchData();
+    }, retryDelayMs);
+
+    return () => clearTimeout(retryTimer);
+  }, [data, error, errorRetryCount, fetchData]);
 
   useEffect(() => listenForDashboardRefresh(() => {
     void fetchData();
