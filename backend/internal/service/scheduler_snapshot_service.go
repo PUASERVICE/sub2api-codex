@@ -225,16 +225,16 @@ func (s *SchedulerSnapshotService) pollOutbox() {
 	if s.outboxRepo == nil || s.cache == nil {
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	pollCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	watermark, err := s.cache.GetOutboxWatermark(ctx)
+	watermark, err := s.cache.GetOutboxWatermark(pollCtx)
 	if err != nil {
 		logger.LegacyPrintf("service.scheduler_snapshot", "[Scheduler] outbox watermark read failed: %v", err)
 		return
 	}
 
-	events, err := s.outboxRepo.ListAfter(ctx, watermark, 200)
+	events, err := s.outboxRepo.ListAfter(pollCtx, watermark, 200)
 	if err != nil {
 		logger.LegacyPrintf("service.scheduler_snapshot", "[Scheduler] outbox poll failed: %v", err)
 		return
@@ -255,13 +255,17 @@ func (s *SchedulerSnapshotService) pollOutbox() {
 	}
 
 	lastID := events[len(events)-1].ID
-	if err := s.cache.SetOutboxWatermark(ctx, lastID); err != nil {
+	watermarkCtx, watermarkCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	if err := s.cache.SetOutboxWatermark(watermarkCtx, lastID); err != nil {
 		logger.LegacyPrintf("service.scheduler_snapshot", "[Scheduler] outbox watermark write failed: %v", err)
 	} else {
 		watermarkForCheck = lastID
 	}
+	watermarkCancel()
 
-	s.checkOutboxLag(ctx, events[0], watermarkForCheck)
+	lagCtx, lagCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	s.checkOutboxLag(lagCtx, events[0], watermarkForCheck)
+	lagCancel()
 }
 
 func (s *SchedulerSnapshotService) handleOutboxEvent(ctx context.Context, event SchedulerOutboxEvent) error {
