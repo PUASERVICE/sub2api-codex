@@ -29,6 +29,9 @@ build/
 # Node modules (will be installed in container)
 frontend/node_modules/
 node_modules/
+third_party/model-status/node_modules/
+third_party/model-status/apps/web/dist/
+third_party/model-status/.git/
 
 # Go build cache (will be built in container)
 backend/vendor/

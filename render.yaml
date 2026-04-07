@@ -66,3 +66,5 @@ services:
         sync: false
       - key: MODEL_STATUS_SESSION_SECRET
         sync: false
+      - key: MODEL_STATUS_BLOCKING_START
+        value: "false"
