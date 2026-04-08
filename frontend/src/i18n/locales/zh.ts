@@ -342,7 +342,6 @@ export default {
     proxies: 'IP管理',
     redeemCodes: '兑换码',
     ops: '运维监控',
-    modelStatus: '模型状态',
     promoCodes: '优惠码',
     settings: '系统设置',
     myAccount: '我的账户',
@@ -356,12 +355,6 @@ export default {
     buySubscription: '充值/订阅',
     docs: '文档',
     sora: 'Sora 创作'
-  },
-
-  modelStatus: {
-    title: '模型状态',
-    description: '查看模型可用性探测结果',
-    openInNewTab: '新标签页打开'
   },
 
   // Auth

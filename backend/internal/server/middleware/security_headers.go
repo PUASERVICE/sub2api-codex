@@ -63,14 +63,9 @@ func SecurityHeaders(cfg config.CSPConfig, getFrameSrcOrigins func() []string) g
 		}
 
 		c.Header("X-Content-Type-Options", "nosniff")
-		if isModelStatusPath(c) {
-			// /status 页面需要被后台管理页以内嵌 iframe 打开
-			c.Header("X-Frame-Options", "SAMEORIGIN")
-		} else {
-			c.Header("X-Frame-Options", "DENY")
-		}
+		c.Header("X-Frame-Options", "DENY")
 		c.Header("Referrer-Policy", "strict-origin-when-cross-origin")
-		if isAPIRoutePath(c) || isModelStatusPath(c) {
+		if isAPIRoutePath(c) {
 			c.Next()
 			return
 		}
@@ -89,14 +84,6 @@ func SecurityHeaders(cfg config.CSPConfig, getFrameSrcOrigins func() []string) g
 		}
 		c.Next()
 	}
-}
-
-func isModelStatusPath(c *gin.Context) bool {
-	if c == nil || c.Request == nil || c.Request.URL == nil {
-		return false
-	}
-	path := c.Request.URL.Path
-	return path == "/status" || strings.HasPrefix(path, "/status/")
 }
 
 func isAPIRoutePath(c *gin.Context) bool {
@@ -124,8 +111,7 @@ func enhanceCSPPolicy(policy string) string {
 		policy = addToDirective(policy, "script-src", CloudflareInsightsDomain)
 	}
 
-	// Model Status 页面通过同源 iframe (/admin/model-status -> /status) 打开，
-	// 需要 frame-src 允许 self。
+	// Keep frame-src self for internal UI embedding needs.
 	if !directiveContainsToken(policy, "frame-src", "'self'") {
 		policy = addToDirective(policy, "frame-src", "'self'")
 	}

@@ -3,8 +3,7 @@
 # =============================================================================
 # Stage 1: Build frontend
 # Stage 2: Build Go backend with embedded frontend
-# Stage 3: Build model-status sidecar assets
-# Stage 4: Final runtime image
+# Stage 3: Final runtime image
 # =============================================================================
 
 ARG NODE_IMAGE=node:24-alpine
@@ -73,26 +72,7 @@ RUN VERSION_VALUE="${VERSION}" && \
     ./cmd/server
 
 # -----------------------------------------------------------------------------
-# Stage 3: Model Status Builder
-# -----------------------------------------------------------------------------
-FROM ${NODE_IMAGE} AS model-status-deps
-
-WORKDIR /app/model-status
-
-# Install dependencies first (better caching)
-COPY third_party/model-status/package.json third_party/model-status/package-lock.json ./
-COPY third_party/model-status/apps/api/package.json ./apps/api/package.json
-COPY third_party/model-status/apps/web/package.json ./apps/web/package.json
-COPY third_party/model-status/packages/shared/package.json ./packages/shared/package.json
-RUN npm ci
-
-FROM model-status-deps AS model-status-builder
-
-COPY third_party/model-status/ ./
-RUN npm run build
-
-# -----------------------------------------------------------------------------
-# Stage 4: Final Runtime Image
+# Stage 3: Final Runtime Image
 # -----------------------------------------------------------------------------
 FROM ${NODE_IMAGE}
 
@@ -117,10 +97,9 @@ RUN addgroup -S sub2api && \
 # Set working directory
 WORKDIR /app
 
-# Copy binary/resources/sidecar with ownership to avoid extra full-layer chown copy
+# Copy binary/resources with ownership to avoid extra full-layer chown copy
 COPY --from=backend-builder --chown=sub2api:sub2api /app/sub2api /app/sub2api
 COPY --from=backend-builder --chown=sub2api:sub2api /app/backend/resources /app/resources
-COPY --from=model-status-builder --chown=sub2api:sub2api /app/model-status /app/model-status
 
 # Create data directory
 RUN mkdir -p /app/data && chown sub2api:sub2api /app/data
