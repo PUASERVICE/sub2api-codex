@@ -175,6 +175,7 @@ func TestAccountTestService_testSoraAccountConnection_CloudflareChallenge(t *tes
 	require.Contains(t, err.Error(), "cf-ray: 9cff2d62d83bb98d")
 	body := rec.Body.String()
 	require.Contains(t, body, `"type":"error"`)
+	require.Contains(t, body, `"code":"CF_CHALLENGE"`)
 	require.Contains(t, body, "Cloudflare challenge")
 	require.Contains(t, body, "cf-ray: 9cff2d62d83bb98d")
 }
@@ -204,6 +205,7 @@ func TestAccountTestService_testSoraAccountConnection_CloudflareChallenge429With
 	require.Contains(t, err.Error(), "HTTP 429")
 	body := rec.Body.String()
 	require.Contains(t, body, "Cloudflare challenge")
+	require.Contains(t, body, `"code":"CF_CHALLENGE"`)
 }
 
 func TestAccountTestService_testSoraAccountConnection_TokenInvalidated(t *testing.T) {
@@ -231,8 +233,32 @@ func TestAccountTestService_testSoraAccountConnection_TokenInvalidated(t *testin
 	body := rec.Body.String()
 	require.Contains(t, body, `"type":"sora_test_result"`)
 	require.Contains(t, body, `"status":"failed"`)
+	require.Contains(t, body, `"code":"TOKEN_INVALIDATED"`)
 	require.Contains(t, body, "token_invalidated")
 	require.NotContains(t, body, `"type":"test_complete","success":true`)
+}
+
+func TestAccountTestService_sendErrorAndEnd_HTMLBodySanitized(t *testing.T) {
+	svc := &AccountTestService{}
+	c, rec := newSoraTestContext()
+
+	err := svc.sendErrorAndEnd(c, "API returned 403: <!DOCTYPE html><html><body>blocked</body></html>")
+
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "Upstream returned HTML error page (HTTP 403)")
+	body := rec.Body.String()
+	require.Contains(t, body, `"type":"error"`)
+	require.Contains(t, body, `"code":"HTTP_403"`)
+	require.Contains(t, body, "Upstream returned HTML error page (HTTP 403)")
+	require.NotContains(t, body, "<!DOCTYPE html>")
+}
+
+func TestClassifyAccountTestErrorCode_UsesUpstreamCode(t *testing.T) {
+	code := classifyAccountTestErrorCode(`API returned 401: {"error":{"code":"invalid_api_key","message":"bad key"}}`)
+	require.Equal(t, "UPSTREAM_INVALID_API_KEY", code)
+
+	summary := summarizeAccountTestErrorMessage(`API returned 401: {"error":{"code":"invalid_api_key","message":"bad key"}}`)
+	require.Equal(t, "API returned 401 (invalid_api_key): bad key", summary)
 }
 
 func TestAccountTestService_testSoraAccountConnection_RateLimited(t *testing.T) {

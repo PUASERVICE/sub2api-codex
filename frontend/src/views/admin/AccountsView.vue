@@ -372,8 +372,9 @@
           v-for="item in batchTestFailedResults"
           :key="item.accountId"
           class="mb-1 rounded bg-red-50 px-2 py-1 text-xs text-red-700 last:mb-0 dark:bg-red-900/20 dark:text-red-300"
+          :title="item.error || ''"
         >
-          {{ item.accountName }}: {{ item.error || t('admin.accounts.testFailed') }}
+          [ID: {{ item.accountId }}] {{ item.accountName }} - {{ item.errorCode || 'UNKNOWN' }}
         </div>
       </div>
     </div>
@@ -506,6 +507,7 @@ interface BatchConnectionTestResult {
   accountId: number
   accountName: string
   success: boolean
+  errorCode?: string
   error?: string
   durationMs: number
 }
@@ -513,10 +515,12 @@ interface BatchConnectionTestResult {
 interface AccountTestSSEEvent {
   type?: string
   success?: boolean
+  code?: string
   error?: string
 }
 
 const BATCH_TEST_CONCURRENCY = 3
+const BATCH_TEST_UNKNOWN_ERROR_CODE = 'UNKNOWN'
 const batchTest = reactive({
   show: false,
   collapsed: false,
@@ -1129,7 +1133,40 @@ const cancelBulkTestConnection = () => {
   }
   batchTestAbortControllers.clear()
 }
-const runSingleAccountConnectionTest = async (accountID: number, signal: AbortSignal): Promise<{ success: boolean; error?: string }> => {
+const normalizeBatchTestErrorCode = (code?: string, errorMessage?: string): string => {
+  const normalizedCode = (code || '')
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+  if (normalizedCode) return normalizedCode
+
+  const msg = (errorMessage || '').trim()
+  if (!msg) return BATCH_TEST_UNKNOWN_ERROR_CODE
+  const lower = msg.toLowerCase()
+
+  if (lower.includes('cloudflare challenge') || lower.includes('cloudflare shield') || lower.includes('_cf_chl_')) return 'CF_CHALLENGE'
+  if (lower.includes('token_invalidated')) return 'TOKEN_INVALIDATED'
+  if (lower.includes('unsupported_country_code')) return 'UNSUPPORTED_COUNTRY'
+
+  const apiStatusMatch = msg.match(/\bapi returned\s+(\d{3})\b/i)
+  if (apiStatusMatch?.[1]) return `HTTP_${apiStatusMatch[1]}`
+  const httpStatusMatch = msg.match(/\bhttp\s*(\d{3})\b/i)
+  if (httpStatusMatch?.[1]) return `HTTP_${httpStatusMatch[1]}`
+
+  if (lower.includes('deadline exceeded') || lower.includes('timeout')) return 'NETWORK_TIMEOUT'
+  if (lower.includes('no such host') || lower.includes('lookup ')) return 'NETWORK_DNS'
+  if (lower.includes('connection refused')) return 'NETWORK_CONN_REFUSED'
+  if (lower.includes('x509') || lower.includes('tls') || lower.includes('certificate')) return 'NETWORK_TLS'
+  if (lower.includes('stream read error')) return 'STREAM_READ_ERROR'
+  if (lower.includes('request failed')) return 'REQUEST_FAILED'
+
+  return BATCH_TEST_UNKNOWN_ERROR_CODE
+}
+const runSingleAccountConnectionTest = async (
+  accountID: number,
+  signal: AbortSignal
+): Promise<{ success: boolean; error?: string; errorCode?: string }> => {
   try {
     const authToken = localStorage.getItem('auth_token')
     const response = await fetch(`/api/v1/admin/accounts/${accountID}/test`, {
@@ -1143,18 +1180,23 @@ const runSingleAccountConnectionTest = async (accountID: number, signal: AbortSi
     })
 
     if (!response.ok) {
-      return { success: false, error: `HTTP ${response.status}` }
+      return { success: false, error: `HTTP ${response.status}`, errorCode: `HTTP_${response.status}` }
     }
 
     const reader = response.body?.getReader()
     if (!reader) {
-      return { success: false, error: t('admin.accounts.batchTestUnexpectedEnd') }
+      return {
+        success: false,
+        error: t('admin.accounts.batchTestUnexpectedEnd'),
+        errorCode: 'STREAM_UNEXPECTED_END'
+      }
     }
 
     const decoder = new TextDecoder()
     let buffer = ''
     let receivedTerminalEvent = false
     let passed = false
+    let errorCode = ''
     let errorMessage = ''
 
     while (true) {
@@ -1176,11 +1218,13 @@ const runSingleAccountConnectionTest = async (accountID: number, signal: AbortSi
             passed = Boolean(event.success)
             if (!passed) {
               errorMessage = event.error || t('admin.accounts.testFailed')
+              errorCode = normalizeBatchTestErrorCode(event.code, errorMessage)
             }
           } else if (event.type === 'error') {
             receivedTerminalEvent = true
             passed = false
             errorMessage = event.error || t('admin.accounts.testFailed')
+            errorCode = normalizeBatchTestErrorCode(event.code, errorMessage)
           }
         } catch (error) {
           console.error('Failed to parse batch test SSE event:', error)
@@ -1189,17 +1233,35 @@ const runSingleAccountConnectionTest = async (accountID: number, signal: AbortSi
     }
 
     if (!receivedTerminalEvent) {
-      return { success: false, error: t('admin.accounts.batchTestUnexpectedEnd') }
+      return {
+        success: false,
+        error: t('admin.accounts.batchTestUnexpectedEnd'),
+        errorCode: 'STREAM_UNEXPECTED_END'
+      }
     }
     if (!passed) {
-      return { success: false, error: errorMessage || t('admin.accounts.testFailed') }
+      const resolvedMessage = errorMessage || t('admin.accounts.testFailed')
+      return {
+        success: false,
+        error: resolvedMessage,
+        errorCode: errorCode || normalizeBatchTestErrorCode(undefined, resolvedMessage)
+      }
     }
     return { success: true }
   } catch (error: any) {
     if (error?.name === 'AbortError') {
-      return { success: false, error: t('admin.accounts.batchTestCanceledItem') }
+      return {
+        success: false,
+        error: t('admin.accounts.batchTestCanceledItem'),
+        errorCode: 'BATCH_CANCELED'
+      }
     }
-    return { success: false, error: error?.message || t('admin.accounts.testFailed') }
+    const fallbackMessage = error?.message || t('admin.accounts.testFailed')
+    return {
+      success: false,
+      error: fallbackMessage,
+      errorCode: normalizeBatchTestErrorCode(undefined, fallbackMessage)
+    }
   }
 }
 const handleBulkTestConnection = async () => {
@@ -1249,6 +1311,7 @@ const handleBulkTestConnection = async () => {
         accountId: accountID,
         accountName,
         success: result.success,
+        errorCode: result.errorCode || (result.success ? undefined : BATCH_TEST_UNKNOWN_ERROR_CODE),
         error: result.error,
         durationMs: Date.now() - startedAt
       }

@@ -34,6 +34,14 @@ import (
 // Some upstream APIs return non-standard "data:" without space (should be "data: ").
 var sseDataPrefix = regexp.MustCompile(`^data:\s*`)
 
+var (
+	apiReturnedStatusPattern      = regexp.MustCompile(`(?i)\bapi returned\s+(\d{3})\b`)
+	httpStatusPattern             = regexp.MustCompile(`(?i)\bhttp\s*(\d{3})\b`)
+	upstreamErrorCodeFieldPattern = regexp.MustCompile(`(?i)"code"\s*:\s*"([^"]+)"`)
+	upstreamErrorTypeFieldPattern = regexp.MustCompile(`(?i)"type"\s*:\s*"([^"]+)"`)
+	accountTestErrorCodeSanitizer = regexp.MustCompile(`[^A-Za-z0-9]+`)
+)
+
 const (
 	testClaudeAPIURL   = "https://api.anthropic.com/v1/messages?beta=true"
 	chatgptCodexAPIURL = "https://chatgpt.com/backend-api/codex/responses"
@@ -42,6 +50,10 @@ const (
 	soraInviteMineURL  = "https://sora.chatgpt.com/backend/project_y/invite/mine"
 	soraBootstrapURL   = "https://sora.chatgpt.com/backend/m/bootstrap"
 	soraRemainingURL   = "https://sora.chatgpt.com/backend/nf/check"
+
+	accountTestErrorCodeUnknown   = "UNKNOWN"
+	accountTestErrorSummaryMaxLen = 240
+	accountTestErrorLogMaxLen     = 1024
 )
 
 // TestEvent represents a SSE event for account testing
@@ -1326,6 +1338,196 @@ func truncateSoraErrorBody(body []byte, max int) string {
 	return soraerror.TruncateBody(body, max)
 }
 
+func normalizeAccountTestErrorCode(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	code := accountTestErrorCodeSanitizer.ReplaceAllString(strings.ToUpper(raw), "_")
+	code = strings.Trim(code, "_")
+	if code == "" {
+		return ""
+	}
+	if len(code) > 64 {
+		code = code[:64]
+	}
+	return code
+}
+
+func extractStatusCodeFromErrorMessage(msg string) string {
+	msg = strings.TrimSpace(msg)
+	if msg == "" {
+		return ""
+	}
+	if matches := apiReturnedStatusPattern.FindStringSubmatch(msg); len(matches) == 2 {
+		return matches[1]
+	}
+	if matches := httpStatusPattern.FindStringSubmatch(msg); len(matches) == 2 {
+		return matches[1]
+	}
+	return ""
+}
+
+func extractUpstreamErrorCodeFromMessage(msg string) string {
+	msg = strings.TrimSpace(msg)
+	if msg == "" {
+		return ""
+	}
+
+	if idx := strings.Index(msg, "{"); idx >= 0 {
+		body := strings.TrimSpace(msg[idx:])
+		if code, _ := soraerror.ExtractUpstreamErrorCodeAndMessage([]byte(body)); code != "" {
+			return normalizeAccountTestErrorCode(code)
+		}
+		if matches := upstreamErrorCodeFieldPattern.FindStringSubmatch(body); len(matches) == 2 {
+			return normalizeAccountTestErrorCode(matches[1])
+		}
+		if matches := upstreamErrorTypeFieldPattern.FindStringSubmatch(body); len(matches) == 2 {
+			return normalizeAccountTestErrorCode(matches[1])
+		}
+	}
+
+	if matches := upstreamErrorCodeFieldPattern.FindStringSubmatch(msg); len(matches) == 2 {
+		return normalizeAccountTestErrorCode(matches[1])
+	}
+	return ""
+}
+
+func classifyAccountTestErrorCode(errorMsg string) string {
+	msg := strings.TrimSpace(errorMsg)
+	if msg == "" {
+		return accountTestErrorCodeUnknown
+	}
+	lower := strings.ToLower(msg)
+
+	if strings.Contains(lower, "cloudflare challenge") || strings.Contains(lower, "cloudflare shield") || strings.Contains(lower, "_cf_chl_") {
+		return "CF_CHALLENGE"
+	}
+	if strings.Contains(lower, "token_invalidated") {
+		return "TOKEN_INVALIDATED"
+	}
+	if strings.Contains(lower, "unsupported_country_code") {
+		return "UNSUPPORTED_COUNTRY"
+	}
+
+	if upstreamCode := extractUpstreamErrorCodeFromMessage(msg); upstreamCode != "" {
+		switch upstreamCode {
+		case "TOKEN_INVALIDATED":
+			return "TOKEN_INVALIDATED"
+		case "UNSUPPORTED_COUNTRY_CODE":
+			return "UNSUPPORTED_COUNTRY"
+		case "CLOUDFLARE_CHALLENGE", "CLOUDFLARE_SHIELD":
+			return "CF_CHALLENGE"
+		default:
+			if strings.HasPrefix(upstreamCode, "HTTP_") {
+				return upstreamCode
+			}
+			return "UPSTREAM_" + upstreamCode
+		}
+	}
+
+	if statusCode := extractStatusCodeFromErrorMessage(msg); statusCode != "" {
+		return "HTTP_" + statusCode
+	}
+
+	switch {
+	case strings.Contains(lower, "deadline exceeded") || strings.Contains(lower, "timeout"):
+		return "NETWORK_TIMEOUT"
+	case strings.Contains(lower, "no such host") || strings.Contains(lower, "lookup "):
+		return "NETWORK_DNS"
+	case strings.Contains(lower, "connection refused"):
+		return "NETWORK_CONN_REFUSED"
+	case strings.Contains(lower, "x509") || strings.Contains(lower, "tls") || strings.Contains(lower, "certificate"):
+		return "NETWORK_TLS"
+	case strings.Contains(lower, "stream read error"):
+		return "STREAM_READ_ERROR"
+	case strings.Contains(lower, "context canceled"):
+		return "REQUEST_CANCELED"
+	case strings.Contains(lower, "request failed"):
+		return "REQUEST_FAILED"
+	case strings.Contains(lower, "account not found"):
+		return "ACCOUNT_NOT_FOUND"
+	case strings.Contains(lower, "unsupported account type"):
+		return "UNSUPPORTED_ACCOUNT_TYPE"
+	case strings.Contains(lower, "unsupported bedrock model"):
+		return "UNSUPPORTED_MODEL"
+	case strings.Contains(lower, "no access token"):
+		return "NO_ACCESS_TOKEN"
+	case strings.Contains(lower, "no api key"):
+		return "NO_API_KEY"
+	default:
+		return accountTestErrorCodeUnknown
+	}
+}
+
+func truncateAccountTestErrorSummary(msg string) string {
+	msg = strings.TrimSpace(msg)
+	if msg == "" {
+		return "Unknown error"
+	}
+	if len(msg) <= accountTestErrorSummaryMaxLen {
+		return msg
+	}
+	return msg[:accountTestErrorSummaryMaxLen] + "...(truncated)"
+}
+
+func looksLikeHTMLPayload(msg string) bool {
+	lower := strings.ToLower(strings.TrimSpace(msg))
+	if lower == "" {
+		return false
+	}
+	return strings.Contains(lower, "<html") ||
+		strings.Contains(lower, "<!doctype html") ||
+		strings.Contains(lower, "</html>") ||
+		strings.Contains(lower, "<body") ||
+		strings.Contains(lower, "window._cf_chl_opt")
+}
+
+func summarizeAccountTestErrorMessage(errorMsg string) string {
+	msg := strings.Join(strings.Fields(strings.TrimSpace(errorMsg)), " ")
+	if msg == "" {
+		return "Unknown error"
+	}
+
+	if idx := strings.Index(msg, ":"); idx >= 0 {
+		tail := strings.TrimSpace(msg[idx+1:])
+		if looksLikeHTMLPayload(tail) {
+			if statusCode := extractStatusCodeFromErrorMessage(msg); statusCode != "" {
+				return fmt.Sprintf("Upstream returned HTML error page (HTTP %s)", statusCode)
+			}
+			return "Upstream returned HTML error page"
+		}
+	}
+
+	if looksLikeHTMLPayload(msg) {
+		if statusCode := extractStatusCodeFromErrorMessage(msg); statusCode != "" {
+			return fmt.Sprintf("Upstream returned HTML error page (HTTP %s)", statusCode)
+		}
+		return "Upstream returned HTML error page"
+	}
+
+	if idx := strings.Index(msg, "{"); idx >= 0 {
+		jsonPart := strings.TrimSpace(msg[idx:])
+		if !looksLikeHTMLPayload(jsonPart) {
+			upstreamCode, upstreamMessage := soraerror.ExtractUpstreamErrorCodeAndMessage([]byte(jsonPart))
+			if upstreamMessage != "" {
+				if statusCode := extractStatusCodeFromErrorMessage(msg); statusCode != "" {
+					if strings.TrimSpace(upstreamCode) != "" {
+						return truncateAccountTestErrorSummary(fmt.Sprintf("API returned %s (%s): %s", statusCode, upstreamCode, upstreamMessage))
+					}
+					return truncateAccountTestErrorSummary(fmt.Sprintf("API returned %s: %s", statusCode, upstreamMessage))
+				}
+				if strings.TrimSpace(upstreamCode) != "" {
+					return truncateAccountTestErrorSummary(fmt.Sprintf("%s: %s", upstreamCode, upstreamMessage))
+				}
+				return truncateAccountTestErrorSummary(upstreamMessage)
+			}
+		}
+	}
+
+	return truncateAccountTestErrorSummary(msg)
+}
+
 // routeAntigravityTest 路由 Antigravity 账号的测试请求。
 // APIKey 类型走原生协议（与 gateway_handler 路由一致），OAuth/Upstream 走 CRS 中转。
 func (s *AccountTestService) routeAntigravityTest(c *gin.Context, account *Account, modelID string, prompt string) error {
@@ -1761,9 +1963,11 @@ func (s *AccountTestService) sendEvent(c *gin.Context, event TestEvent) {
 
 // sendErrorAndEnd sends an error event and ends the stream
 func (s *AccountTestService) sendErrorAndEnd(c *gin.Context, errorMsg string) error {
-	log.Printf("Account test error: %s", errorMsg)
-	s.sendEvent(c, TestEvent{Type: "error", Error: errorMsg})
-	return fmt.Errorf("%s", errorMsg)
+	code := classifyAccountTestErrorCode(errorMsg)
+	summary := summarizeAccountTestErrorMessage(errorMsg)
+	log.Printf("Account test error: code=%s detail=%s", code, soraerror.TruncateBody([]byte(strings.TrimSpace(errorMsg)), accountTestErrorLogMaxLen))
+	s.sendEvent(c, TestEvent{Type: "error", Code: code, Error: summary})
+	return fmt.Errorf("%s", summary)
 }
 
 // RunTestBackground executes an account test in-memory (no real HTTP client),
