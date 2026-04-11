@@ -2368,6 +2368,7 @@ export default {
       bulkActions: {
         selected: '已选择 {count} 个账号',
         selectCurrentPage: '本页全选',
+        invertCurrentPage: '本页反选',
         clear: '清除选择',
         edit: '批量编辑账号',
         delete: '批量删除',

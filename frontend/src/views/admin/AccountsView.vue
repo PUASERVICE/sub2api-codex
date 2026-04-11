@@ -2,7 +2,7 @@
   <AppLayout>
     <TablePageLayout>
       <template #filters>
-        <div class="flex flex-wrap-reverse items-start justify-between gap-3">
+        <div class="flex flex-col-reverse gap-3 xl:flex-row xl:items-start xl:justify-between">
           <AccountTableFilters
             v-model:searchQuery="params.search"
             :filters="params"
@@ -19,13 +19,13 @@
           >
             <template #after>
               <!-- Auto Refresh Dropdown -->
-              <div class="relative" ref="autoRefreshDropdownRef">
+              <div class="relative w-full sm:w-auto" ref="autoRefreshDropdownRef">
                 <button
                   @click="
                     showAutoRefreshDropdown = !showAutoRefreshDropdown;
                     showColumnDropdown = false
                   "
-                  class="btn btn-secondary px-2 md:px-3"
+                  class="btn btn-secondary w-full px-2 md:px-3 sm:w-auto"
                   :title="t('admin.accounts.autoRefresh')"
                 >
                   <Icon name="refresh" size="sm" :class="[autoRefreshEnabled ? 'animate-spin' : '']" />
@@ -66,7 +66,7 @@
               <!-- Error Passthrough Rules -->
               <button
                 @click="showErrorPassthrough = true"
-                class="btn btn-secondary"
+                class="btn btn-secondary w-full sm:w-auto"
                 :title="t('admin.errorPassthrough.title')"
               >
                 <Icon name="shield" size="md" class="mr-1.5" />
@@ -76,7 +76,7 @@
               <!-- TLS Fingerprint Profiles -->
               <button
                 @click="showTLSFingerprintProfiles = true"
-                class="btn btn-secondary"
+                class="btn btn-secondary w-full sm:w-auto"
                 :title="t('admin.tlsFingerprintProfiles.title')"
               >
                 <Icon name="lock" size="md" class="mr-1.5" />
@@ -84,13 +84,13 @@
               </button>
 
               <!-- Column Settings Dropdown -->
-              <div class="relative" ref="columnDropdownRef">
+              <div class="relative w-full sm:w-auto" ref="columnDropdownRef">
                 <button
                   @click="
                     showColumnDropdown = !showColumnDropdown;
                     showAutoRefreshDropdown = false
                   "
-                  class="btn btn-secondary px-2 md:px-3"
+                  class="btn btn-secondary w-full px-2 md:px-3 sm:w-auto"
                   :title="t('admin.users.columnSettings')"
                 >
                   <svg class="h-4 w-4 md:mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
@@ -118,10 +118,10 @@
               </div>
             </template>
             <template #beforeCreate>
-              <button @click="showImportData = true" class="btn btn-secondary">
+              <button @click="showImportData = true" class="btn btn-secondary w-full sm:w-auto">
                 {{ t('admin.accounts.dataImport') }}
               </button>
-              <button @click="openExportDataDialog" class="btn btn-secondary">
+              <button @click="openExportDataDialog" class="btn btn-secondary w-full sm:w-auto">
                 {{ selIds.length ? t('admin.accounts.dataExportSelected') : t('admin.accounts.dataExport') }}
               </button>
             </template>
@@ -141,7 +141,7 @@
         </div>
       </template>
       <template #table>
-        <AccountBulkActionsBar :selected-ids="selIds" @delete="handleBulkDelete" @test-connection="handleBulkTestConnection" @reset-status="handleBulkResetStatus" @refresh-token="handleBulkRefreshToken" @edit="showBulkEdit = true" @clear="clearSelection" @select-page="selectPage" @toggle-schedulable="handleBulkToggleSchedulable" />
+        <AccountBulkActionsBar :selected-ids="selIds" @delete="handleBulkDelete" @test-connection="handleBulkTestConnection" @reset-status="handleBulkResetStatus" @refresh-token="handleBulkRefreshToken" @edit="showBulkEdit = true" @clear="clearSelection" @select-page="selectPage" @invert-page="invertPage" @toggle-schedulable="handleBulkToggleSchedulable" />
         <div ref="accountTableRef" class="flex min-h-0 flex-1 flex-col overflow-hidden">
         <DataTable
           :columns="cols"
@@ -726,7 +726,8 @@ const {
   clear: clearSelection,
   removeMany: removeSelectedAccounts,
   toggleVisible,
-  selectVisible: selectPage
+  selectVisible: selectPage,
+  invertVisible: invertPage
 } = useTableSelection<Account>({
   rows: accounts,
   getId: (account) => account.id

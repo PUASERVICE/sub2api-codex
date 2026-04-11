@@ -2218,6 +2218,7 @@ export default {
       bulkActions: {
         selected: '{count} account(s) selected',
         selectCurrentPage: 'Select this page',
+        invertCurrentPage: 'Invert this page',
         clear: 'Clear selection',
         edit: 'Bulk Edit',
         delete: 'Bulk Delete',

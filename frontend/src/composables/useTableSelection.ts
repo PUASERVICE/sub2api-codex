@@ -80,6 +80,16 @@ export function useTableSelection<T>({ rows, getId }: UseTableSelectionOptions<T
     toggleVisible(true)
   }
 
+  const invertVisible = () => {
+    const next = new Set(selectedSet.value)
+    rows.value.forEach((row) => {
+      const id = getId(row)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+    })
+    replaceSelectedSet(next)
+  }
+
   return {
     selectedSet,
     selectedIds,
@@ -93,6 +103,7 @@ export function useTableSelection<T>({ rows, getId }: UseTableSelectionOptions<T
     clear,
     removeMany,
     toggleVisible,
-    selectVisible
+    selectVisible,
+    invertVisible
   }
 }
