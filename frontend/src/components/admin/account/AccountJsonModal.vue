@@ -10,13 +10,13 @@
         v-if="account"
         class="flex flex-col gap-3 rounded-xl border border-gray-200 bg-gradient-to-r from-slate-50 to-gray-100 p-4 dark:border-dark-500 dark:from-dark-700 dark:to-dark-600"
       >
-        <div class="flex items-start justify-between gap-4">
-          <div class="flex items-center gap-3">
+        <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div class="flex min-w-0 items-center gap-3">
             <div class="flex h-10 w-10 items-center justify-center rounded-lg bg-gradient-to-br from-sky-500 to-cyan-600">
               <Icon name="document" size="md" class="text-white" />
             </div>
-            <div>
-              <div class="font-semibold text-gray-900 dark:text-gray-100">{{ account.name }}</div>
+            <div class="min-w-0">
+              <div class="truncate font-semibold text-gray-900 dark:text-gray-100">{{ account.name }}</div>
               <div class="mt-1 flex flex-wrap items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
                 <span class="rounded bg-white/70 px-2 py-0.5 font-medium uppercase dark:bg-dark-500/80">
                   #{{ account.id }}
@@ -31,10 +31,10 @@
             </div>
           </div>
 
-          <div class="flex flex-wrap items-center gap-2">
+          <div class="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
             <button
               @click="copyAccessToken"
-              class="inline-flex items-center gap-2 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm font-medium text-sky-700 transition-colors hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-sky-700/60 dark:bg-sky-900/20 dark:text-sky-200 dark:hover:bg-sky-900/30"
+              class="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm font-medium text-sky-700 transition-colors hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto dark:border-sky-700/60 dark:bg-sky-900/20 dark:text-sky-200 dark:hover:bg-sky-900/30"
               :disabled="loading || !accessToken"
             >
               <Icon name="key" size="sm" />
@@ -42,7 +42,7 @@
             </button>
             <button
               @click="copyJson"
-              class="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-dark-500 dark:bg-dark-700 dark:text-gray-200 dark:hover:bg-dark-600"
+              class="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto dark:border-dark-500 dark:bg-dark-700 dark:text-gray-200 dark:hover:bg-dark-600"
               :disabled="loading || !prettyJson"
             >
               <Icon name="copy" size="sm" />

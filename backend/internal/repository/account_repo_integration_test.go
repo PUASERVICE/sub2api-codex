@@ -256,6 +256,60 @@ func (s *AccountRepoSuite) TestListWithFilters() {
 			},
 		},
 		{
+			name: "filter_by_status_active_only_returns_truly_schedulable_accounts",
+			setup: func(client *dbent.Client) {
+				now := time.Now()
+				future := now.Add(30 * time.Minute)
+				past := now.Add(-30 * time.Minute)
+
+				mustCreateAccount(s.T(), client, &service.Account{
+					Name:        "active-ok",
+					Status:      service.StatusActive,
+					Schedulable: true,
+				})
+				mustCreateAccount(s.T(), client, &service.Account{
+					Name:             "active-rate-limited",
+					Status:           service.StatusActive,
+					Schedulable:      true,
+					RateLimitResetAt: &future,
+				})
+				mustCreateAccount(s.T(), client, &service.Account{
+					Name:          "active-overloaded",
+					Status:        service.StatusActive,
+					Schedulable:   true,
+					OverloadUntil: &future,
+				})
+				mustCreateAccount(s.T(), client, &service.Account{
+					Name:                   "active-temp-unsched",
+					Status:                 service.StatusActive,
+					Schedulable:            true,
+					TempUnschedulableUntil: &future,
+				})
+				mustCreateAccount(s.T(), client, &service.Account{
+					Name:        "active-stopped",
+					Status:      service.StatusActive,
+					Schedulable: false,
+				})
+				mustCreateAccount(s.T(), client, &service.Account{
+					Name:               "active-expired-paused",
+					Status:             service.StatusActive,
+					Schedulable:        true,
+					AutoPauseOnExpired: true,
+					ExpiresAt:          &past,
+				})
+				mustCreateAccount(s.T(), client, &service.Account{
+					Name:        "disabled-account",
+					Status:      service.StatusDisabled,
+					Schedulable: true,
+				})
+			},
+			status:    service.StatusActive,
+			wantCount: 1,
+			validate: func(accounts []service.Account) {
+				s.Require().Equal("active-ok", accounts[0].Name)
+			},
+		},
+		{
 			name: "filter_by_search",
 			setup: func(client *dbent.Client) {
 				mustCreateAccount(s.T(), client, &service.Account{Name: "alpha-account"})
