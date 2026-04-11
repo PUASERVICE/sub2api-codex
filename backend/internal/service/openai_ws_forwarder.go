@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -2097,6 +2098,26 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 			if !wroteDownstream {
 				return nil, wrapOpenAIWSFallback(classifyOpenAIWSReadFallbackReason(readErr), readErr)
 			}
+			recordOpenAIStreamInterruption(
+				c,
+				account,
+				responseID,
+				openAIStreamInterruptionKindWSAfterDownstreamWrite,
+				"upstream websocket closed before response.completed",
+				false,
+				formatOpenAIStreamInterruptionDetail(
+					"transport=responses_websockets_v2",
+					"wrote_downstream=true",
+					"close_status="+closeStatus,
+					"close_reason="+truncateOpenAIWSLogValue(closeReason, openAIWSHeaderValueMaxLen),
+					"events="+strconv.Itoa(eventCount),
+					"token_events="+strconv.Itoa(tokenEventCount),
+					"terminal_events="+strconv.Itoa(terminalEventCount),
+					"first_event="+truncateOpenAIWSLogValue(firstEventType, openAIWSLogValueMaxLen),
+					"last_event="+truncateOpenAIWSLogValue(lastEventType, openAIWSLogValueMaxLen),
+					"error="+truncateOpenAIWSLogValue(readErr.Error(), openAIWSLogValueMaxLen),
+				),
+			)
 			if clientDisconnected {
 				break
 			}

@@ -2898,14 +2898,49 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 		if sawTerminalEvent {
 			return &openaiStreamingResultPassthrough{usage: usage, firstTokenMs: firstTokenMs}, nil
 		}
+		streamDetail := formatOpenAIStreamInterruptionDetail(
+			"transport=http_passthrough",
+			"terminal_event=false",
+			"done_marker="+strconv.FormatBool(sawDone),
+			"client_disconnected="+strconv.FormatBool(clientDisconnected),
+			"request_id="+truncateOpenAIWSLogValue(upstreamRequestID, openAIWSIDValueMaxLen),
+			"error="+truncateOpenAIWSLogValue(err.Error(), openAIWSLogValueMaxLen),
+		)
 		if clientDisconnected {
+			recordOpenAIStreamInterruption(
+				c,
+				account,
+				upstreamRequestID,
+				openAIStreamInterruptionKindHTTPPassthroughReadError,
+				"upstream stream read error before response.completed after client disconnect",
+				true,
+				streamDetail,
+			)
 			return &openaiStreamingResultPassthrough{usage: usage, firstTokenMs: firstTokenMs}, fmt.Errorf("stream usage incomplete after disconnect: %w", err)
 		}
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			recordOpenAIStreamInterruption(
+				c,
+				account,
+				upstreamRequestID,
+				openAIStreamInterruptionKindHTTPPassthroughReadError,
+				"upstream stream canceled before response.completed",
+				true,
+				streamDetail,
+			)
 			return &openaiStreamingResultPassthrough{usage: usage, firstTokenMs: firstTokenMs}, fmt.Errorf("stream usage incomplete: %w", err)
 		}
 		if errors.Is(err, bufio.ErrTooLong) {
 			logger.LegacyPrintf("service.openai_gateway", "[OpenAI passthrough] SSE line too long: account=%d max_size=%d error=%v", account.ID, maxLineSize, err)
+			recordOpenAIStreamInterruption(
+				c,
+				account,
+				upstreamRequestID,
+				openAIStreamInterruptionKindHTTPPassthroughReadError,
+				"upstream stream line exceeded scanner limit before response.completed",
+				true,
+				streamDetail,
+			)
 			return &openaiStreamingResultPassthrough{usage: usage, firstTokenMs: firstTokenMs}, err
 		}
 		logger.LegacyPrintf("service.openai_gateway",
@@ -2913,6 +2948,15 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 			account.ID,
 			upstreamRequestID,
 			err,
+		)
+		recordOpenAIStreamInterruption(
+			c,
+			account,
+			upstreamRequestID,
+			openAIStreamInterruptionKindHTTPPassthroughReadError,
+			"upstream stream read error before response.completed",
+			true,
+			streamDetail,
 		)
 		return &openaiStreamingResultPassthrough{usage: usage, firstTokenMs: firstTokenMs}, fmt.Errorf("stream read error: %w", err)
 	}
@@ -2922,6 +2966,21 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 			zap.Int64("account_id", account.ID),
 			zap.String("upstream_request_id", upstreamRequestID),
 		).Info("OpenAI passthrough 上游流在未收到 [DONE] 时结束，疑似断流")
+		recordOpenAIStreamInterruption(
+			c,
+			account,
+			upstreamRequestID,
+			openAIStreamInterruptionKindHTTPPassthroughMissingTerminal,
+			"upstream stream ended before response.completed",
+			true,
+			formatOpenAIStreamInterruptionDetail(
+				"transport=http_passthrough",
+				"terminal_event=false",
+				"done_marker=false",
+				"client_disconnected=false",
+				"request_id="+truncateOpenAIWSLogValue(upstreamRequestID, openAIWSIDValueMaxLen),
+			),
+		)
 		return &openaiStreamingResultPassthrough{usage: usage, firstTokenMs: firstTokenMs}, errors.New("stream usage incomplete: missing terminal event")
 	}
 
@@ -3493,6 +3552,20 @@ func (s *OpenAIGatewayService) handleStreamingResponse(ctx context.Context, resp
 			}
 		}
 		if !sawTerminalEvent {
+			recordOpenAIStreamInterruption(
+				c,
+				account,
+				resp.Header.Get("x-request-id"),
+				openAIStreamInterruptionKindHTTPResponsesMissingTerminal,
+				"upstream stream ended before response.completed",
+				false,
+				formatOpenAIStreamInterruptionDetail(
+					"transport=http_responses",
+					"terminal_event=false",
+					"client_disconnected="+strconv.FormatBool(clientDisconnected),
+					"request_id="+truncateOpenAIWSLogValue(resp.Header.Get("x-request-id"), openAIWSIDValueMaxLen),
+				),
+			)
 			return resultWithUsage(), fmt.Errorf("stream usage incomplete: missing terminal event")
 		}
 		return resultWithUsage(), nil
@@ -3508,17 +3581,77 @@ func (s *OpenAIGatewayService) handleStreamingResponse(ctx context.Context, resp
 		// 客户端断开/取消请求时，上游读取往往会返回 context canceled。
 		// /v1/responses 的 SSE 事件必须符合 OpenAI 协议；这里不注入自定义 error event，避免下游 SDK 解析失败。
 		if errors.Is(scanErr, context.Canceled) || errors.Is(scanErr, context.DeadlineExceeded) {
+			recordOpenAIStreamInterruption(
+				c,
+				account,
+				resp.Header.Get("x-request-id"),
+				openAIStreamInterruptionKindHTTPResponsesReadError,
+				"upstream stream canceled before response.completed",
+				false,
+				formatOpenAIStreamInterruptionDetail(
+					"transport=http_responses",
+					"terminal_event=false",
+					"client_disconnected="+strconv.FormatBool(clientDisconnected),
+					"request_id="+truncateOpenAIWSLogValue(resp.Header.Get("x-request-id"), openAIWSIDValueMaxLen),
+					"error="+truncateOpenAIWSLogValue(scanErr.Error(), openAIWSLogValueMaxLen),
+				),
+			)
 			return resultWithUsage(), fmt.Errorf("stream usage incomplete: %w", scanErr), true
 		}
 		// 客户端已断开时，上游出错仅影响体验，不影响计费；返回已收集 usage
 		if clientDisconnected {
+			recordOpenAIStreamInterruption(
+				c,
+				account,
+				resp.Header.Get("x-request-id"),
+				openAIStreamInterruptionKindHTTPResponsesReadError,
+				"upstream stream read error before response.completed after client disconnect",
+				false,
+				formatOpenAIStreamInterruptionDetail(
+					"transport=http_responses",
+					"terminal_event=false",
+					"client_disconnected=true",
+					"request_id="+truncateOpenAIWSLogValue(resp.Header.Get("x-request-id"), openAIWSIDValueMaxLen),
+					"error="+truncateOpenAIWSLogValue(scanErr.Error(), openAIWSLogValueMaxLen),
+				),
+			)
 			return resultWithUsage(), fmt.Errorf("stream usage incomplete after disconnect: %w", scanErr), true
 		}
 		if errors.Is(scanErr, bufio.ErrTooLong) {
 			logger.LegacyPrintf("service.openai_gateway", "SSE line too long: account=%d max_size=%d error=%v", account.ID, maxLineSize, scanErr)
+			recordOpenAIStreamInterruption(
+				c,
+				account,
+				resp.Header.Get("x-request-id"),
+				openAIStreamInterruptionKindHTTPResponsesReadError,
+				"upstream stream line exceeded scanner limit before response.completed",
+				false,
+				formatOpenAIStreamInterruptionDetail(
+					"transport=http_responses",
+					"terminal_event=false",
+					"client_disconnected=false",
+					"request_id="+truncateOpenAIWSLogValue(resp.Header.Get("x-request-id"), openAIWSIDValueMaxLen),
+					"error="+truncateOpenAIWSLogValue(scanErr.Error(), openAIWSLogValueMaxLen),
+				),
+			)
 			sendErrorEvent("response_too_large")
 			return resultWithUsage(), scanErr, true
 		}
+		recordOpenAIStreamInterruption(
+			c,
+			account,
+			resp.Header.Get("x-request-id"),
+			openAIStreamInterruptionKindHTTPResponsesReadError,
+			"upstream stream read error before response.completed",
+			false,
+			formatOpenAIStreamInterruptionDetail(
+				"transport=http_responses",
+				"terminal_event=false",
+				"client_disconnected=false",
+				"request_id="+truncateOpenAIWSLogValue(resp.Header.Get("x-request-id"), openAIWSIDValueMaxLen),
+				"error="+truncateOpenAIWSLogValue(scanErr.Error(), openAIWSLogValueMaxLen),
+			),
+		)
 		sendErrorEvent("stream_read_error")
 		return resultWithUsage(), fmt.Errorf("stream read error: %w", scanErr), true
 	}
@@ -3661,6 +3794,21 @@ func (s *OpenAIGatewayService) handleStreamingResponse(ctx context.Context, resp
 			if s.rateLimitService != nil {
 				s.rateLimitService.HandleStreamTimeout(ctx, account, originalModel)
 			}
+			recordOpenAIStreamInterruption(
+				c,
+				account,
+				resp.Header.Get("x-request-id"),
+				openAIStreamInterruptionKindHTTPResponsesTimeout,
+				"upstream stream timed out before response.completed",
+				false,
+				formatOpenAIStreamInterruptionDetail(
+					"transport=http_responses",
+					"terminal_event=false",
+					"client_disconnected=false",
+					"request_id="+truncateOpenAIWSLogValue(resp.Header.Get("x-request-id"), openAIWSIDValueMaxLen),
+					"interval="+streamInterval.String(),
+				),
+			)
 			sendErrorEvent("stream_timeout")
 			return resultWithUsage(), fmt.Errorf("stream data interval timeout")
 
