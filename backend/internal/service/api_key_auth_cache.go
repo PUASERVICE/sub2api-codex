@@ -4,6 +4,7 @@ import "time"
 
 // APIKeyAuthSnapshot API Key 认证缓存快照（仅包含认证所需字段）
 type APIKeyAuthSnapshot struct {
+	Version     int                      `json:"version"`
 	APIKeyID    int64                    `json:"api_key_id"`
 	UserID      int64                    `json:"user_id"`
 	GroupID     *int64                   `json:"group_id,omitempty"`
@@ -49,10 +50,6 @@ type APIKeyAuthGroupSnapshot struct {
 	ImagePrice1K                    *float64 `json:"image_price_1k,omitempty"`
 	ImagePrice2K                    *float64 `json:"image_price_2k,omitempty"`
 	ImagePrice4K                    *float64 `json:"image_price_4k,omitempty"`
-	SoraImagePrice360               *float64 `json:"sora_image_price_360,omitempty"`
-	SoraImagePrice540               *float64 `json:"sora_image_price_540,omitempty"`
-	SoraVideoPricePerRequest        *float64 `json:"sora_video_price_per_request,omitempty"`
-	SoraVideoPricePerRequestHD      *float64 `json:"sora_video_price_per_request_hd,omitempty"`
 	ClaudeCodeOnly                  bool     `json:"claude_code_only"`
 	FallbackGroupID                 *int64   `json:"fallback_group_id,omitempty"`
 	FallbackGroupIDOnInvalidRequest *int64   `json:"fallback_group_id_on_invalid_request,omitempty"`
@@ -67,8 +64,9 @@ type APIKeyAuthGroupSnapshot struct {
 	SupportedModelScopes []string `json:"supported_model_scopes,omitempty"`
 
 	// OpenAI Messages 调度配置（仅 openai 平台使用）
-	AllowMessagesDispatch bool   `json:"allow_messages_dispatch"`
-	DefaultMappedModel    string `json:"default_mapped_model,omitempty"`
+	AllowMessagesDispatch       bool                              `json:"allow_messages_dispatch"`
+	DefaultMappedModel          string                            `json:"default_mapped_model,omitempty"`
+	MessagesDispatchModelConfig OpenAIMessagesDispatchModelConfig `json:"messages_dispatch_model_config,omitempty"`
 }
 
 // APIKeyAuthCacheEntry 缓存条目，支持负缓存

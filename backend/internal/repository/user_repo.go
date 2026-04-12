@@ -17,6 +17,8 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/usersubscription"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/Wei-Shaw/sub2api/internal/service"
+
+	entsql "entgo.io/ent/dialect/sql"
 )
 
 type userRepository struct {
@@ -62,7 +64,6 @@ func (r *userRepository) Create(ctx context.Context, userIn *service.User) error
 		SetBalance(userIn.Balance).
 		SetConcurrency(userIn.Concurrency).
 		SetStatus(userIn.Status).
-		SetSoraStorageQuotaBytes(userIn.SoraStorageQuotaBytes).
 		Save(ctx)
 	if err != nil {
 		return translatePersistenceError(err, nil, service.ErrEmailExists)
@@ -145,8 +146,6 @@ func (r *userRepository) Update(ctx context.Context, userIn *service.User) error
 		SetBalance(userIn.Balance).
 		SetConcurrency(userIn.Concurrency).
 		SetStatus(userIn.Status).
-		SetSoraStorageQuotaBytes(userIn.SoraStorageQuotaBytes).
-		SetSoraStorageUsedBytes(userIn.SoraStorageUsedBytes).
 		Save(ctx)
 	if err != nil {
 		return translatePersistenceError(err, service.ErrUserNotFound, service.ErrEmailExists)
@@ -227,11 +226,14 @@ func (r *userRepository) ListWithFilters(ctx context.Context, params pagination.
 		return nil, nil, err
 	}
 
-	users, err := q.
+	usersQuery := q.
 		Offset(params.Offset()).
-		Limit(params.Limit()).
-		Order(dbent.Desc(dbuser.FieldID)).
-		All(ctx)
+		Limit(params.Limit())
+	for _, order := range userListOrder(params) {
+		usersQuery = usersQuery.Order(order)
+	}
+
+	users, err := usersQuery.All(ctx)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -282,6 +284,50 @@ func (r *userRepository) ListWithFilters(ctx context.Context, params pagination.
 	}
 
 	return outUsers, paginationResultFromTotal(int64(total), params), nil
+}
+
+func userListOrder(params pagination.PaginationParams) []func(*entsql.Selector) {
+	sortBy := strings.ToLower(strings.TrimSpace(params.SortBy))
+	sortOrder := params.NormalizedSortOrder(pagination.SortOrderDesc)
+
+	var field string
+	defaultField := true
+	switch sortBy {
+	case "email":
+		field = dbuser.FieldEmail
+		defaultField = false
+	case "username":
+		field = dbuser.FieldUsername
+		defaultField = false
+	case "role":
+		field = dbuser.FieldRole
+		defaultField = false
+	case "balance":
+		field = dbuser.FieldBalance
+		defaultField = false
+	case "concurrency":
+		field = dbuser.FieldConcurrency
+		defaultField = false
+	case "status":
+		field = dbuser.FieldStatus
+		defaultField = false
+	case "created_at":
+		field = dbuser.FieldCreatedAt
+		defaultField = false
+	default:
+		field = dbuser.FieldID
+	}
+
+	if sortOrder == pagination.SortOrderAsc {
+		if defaultField && field == dbuser.FieldID {
+			return []func(*entsql.Selector){dbent.Asc(dbuser.FieldID)}
+		}
+		return []func(*entsql.Selector){dbent.Asc(field), dbent.Asc(dbuser.FieldID)}
+	}
+	if defaultField && field == dbuser.FieldID {
+		return []func(*entsql.Selector){dbent.Desc(dbuser.FieldID)}
+	}
+	return []func(*entsql.Selector){dbent.Desc(field), dbent.Desc(dbuser.FieldID)}
 }
 
 // filterUsersByAttributes returns user IDs that match ALL the given attribute filters
@@ -374,65 +420,6 @@ func (r *userRepository) UpdateConcurrency(ctx context.Context, id int64, amount
 		return service.ErrUserNotFound
 	}
 	return nil
-}
-
-// AddSoraStorageUsageWithQuota 原子累加 Sora 存储用量，并在有配额时校验不超额。
-func (r *userRepository) AddSoraStorageUsageWithQuota(ctx context.Context, userID int64, deltaBytes int64, effectiveQuota int64) (int64, error) {
-	if deltaBytes <= 0 {
-		user, err := r.GetByID(ctx, userID)
-		if err != nil {
-			return 0, err
-		}
-		return user.SoraStorageUsedBytes, nil
-	}
-	var newUsed int64
-	err := scanSingleRow(ctx, r.sql, `
-		UPDATE users
-		SET sora_storage_used_bytes = sora_storage_used_bytes + $2
-		WHERE id = $1
-		  AND ($3 = 0 OR sora_storage_used_bytes + $2 <= $3)
-		RETURNING sora_storage_used_bytes
-	`, []any{userID, deltaBytes, effectiveQuota}, &newUsed)
-	if err == nil {
-		return newUsed, nil
-	}
-	if errors.Is(err, sql.ErrNoRows) {
-		// 区分用户不存在和配额冲突
-		exists, existsErr := r.client.User.Query().Where(dbuser.IDEQ(userID)).Exist(ctx)
-		if existsErr != nil {
-			return 0, existsErr
-		}
-		if !exists {
-			return 0, service.ErrUserNotFound
-		}
-		return 0, service.ErrSoraStorageQuotaExceeded
-	}
-	return 0, err
-}
-
-// ReleaseSoraStorageUsageAtomic 原子释放 Sora 存储用量，并保证不低于 0。
-func (r *userRepository) ReleaseSoraStorageUsageAtomic(ctx context.Context, userID int64, deltaBytes int64) (int64, error) {
-	if deltaBytes <= 0 {
-		user, err := r.GetByID(ctx, userID)
-		if err != nil {
-			return 0, err
-		}
-		return user.SoraStorageUsedBytes, nil
-	}
-	var newUsed int64
-	err := scanSingleRow(ctx, r.sql, `
-		UPDATE users
-		SET sora_storage_used_bytes = GREATEST(sora_storage_used_bytes - $2, 0)
-		WHERE id = $1
-		RETURNING sora_storage_used_bytes
-	`, []any{userID, deltaBytes}, &newUsed)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return 0, service.ErrUserNotFound
-		}
-		return 0, err
-	}
-	return newUsed, nil
 }
 
 func (r *userRepository) ExistsByEmail(ctx context.Context, email string) (bool, error) {

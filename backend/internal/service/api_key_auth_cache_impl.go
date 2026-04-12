@@ -13,6 +13,8 @@ import (
 	"github.com/dgraph-io/ristretto"
 )
 
+const apiKeyAuthSnapshotVersion = 3
+
 type apiKeyAuthCacheConfig struct {
 	l1Size        int
 	l1TTL         time.Duration
@@ -192,6 +194,9 @@ func (s *APIKeyService) applyAuthCacheEntry(key string, entry *APIKeyAuthCacheEn
 	if entry.Snapshot == nil {
 		return nil, false, nil
 	}
+	if entry.Snapshot.Version != apiKeyAuthSnapshotVersion {
+		return nil, false, nil
+	}
 	return s.snapshotToAPIKey(key, entry.Snapshot), true, nil
 }
 
@@ -200,6 +205,7 @@ func (s *APIKeyService) snapshotFromAPIKey(apiKey *APIKey) *APIKeyAuthSnapshot {
 		return nil
 	}
 	snapshot := &APIKeyAuthSnapshot{
+		Version:     apiKeyAuthSnapshotVersion,
 		APIKeyID:    apiKey.ID,
 		UserID:      apiKey.UserID,
 		GroupID:     apiKey.GroupID,
@@ -234,10 +240,6 @@ func (s *APIKeyService) snapshotFromAPIKey(apiKey *APIKey) *APIKeyAuthSnapshot {
 			ImagePrice1K:                    apiKey.Group.ImagePrice1K,
 			ImagePrice2K:                    apiKey.Group.ImagePrice2K,
 			ImagePrice4K:                    apiKey.Group.ImagePrice4K,
-			SoraImagePrice360:               apiKey.Group.SoraImagePrice360,
-			SoraImagePrice540:               apiKey.Group.SoraImagePrice540,
-			SoraVideoPricePerRequest:        apiKey.Group.SoraVideoPricePerRequest,
-			SoraVideoPricePerRequestHD:      apiKey.Group.SoraVideoPricePerRequestHD,
 			ClaudeCodeOnly:                  apiKey.Group.ClaudeCodeOnly,
 			FallbackGroupID:                 apiKey.Group.FallbackGroupID,
 			FallbackGroupIDOnInvalidRequest: apiKey.Group.FallbackGroupIDOnInvalidRequest,
@@ -247,6 +249,7 @@ func (s *APIKeyService) snapshotFromAPIKey(apiKey *APIKey) *APIKeyAuthSnapshot {
 			SupportedModelScopes:            apiKey.Group.SupportedModelScopes,
 			AllowMessagesDispatch:           apiKey.Group.AllowMessagesDispatch,
 			DefaultMappedModel:              apiKey.Group.DefaultMappedModel,
+			MessagesDispatchModelConfig:     apiKey.Group.MessagesDispatchModelConfig,
 		}
 	}
 	return snapshot
@@ -293,10 +296,6 @@ func (s *APIKeyService) snapshotToAPIKey(key string, snapshot *APIKeyAuthSnapsho
 			ImagePrice1K:                    snapshot.Group.ImagePrice1K,
 			ImagePrice2K:                    snapshot.Group.ImagePrice2K,
 			ImagePrice4K:                    snapshot.Group.ImagePrice4K,
-			SoraImagePrice360:               snapshot.Group.SoraImagePrice360,
-			SoraImagePrice540:               snapshot.Group.SoraImagePrice540,
-			SoraVideoPricePerRequest:        snapshot.Group.SoraVideoPricePerRequest,
-			SoraVideoPricePerRequestHD:      snapshot.Group.SoraVideoPricePerRequestHD,
 			ClaudeCodeOnly:                  snapshot.Group.ClaudeCodeOnly,
 			FallbackGroupID:                 snapshot.Group.FallbackGroupID,
 			FallbackGroupIDOnInvalidRequest: snapshot.Group.FallbackGroupIDOnInvalidRequest,
@@ -306,6 +305,7 @@ func (s *APIKeyService) snapshotToAPIKey(key string, snapshot *APIKeyAuthSnapsho
 			SupportedModelScopes:            snapshot.Group.SupportedModelScopes,
 			AllowMessagesDispatch:           snapshot.Group.AllowMessagesDispatch,
 			DefaultMappedModel:              snapshot.Group.DefaultMappedModel,
+			MessagesDispatchModelConfig:     snapshot.Group.MessagesDispatchModelConfig,
 		}
 	}
 	s.compileAPIKeyIPRules(apiKey)

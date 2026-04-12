@@ -35,23 +35,34 @@ func generateMenuItemID() (string, error) {
 	return hex.EncodeToString(b), nil
 }
 
+func scopesContainOpenID(scopes string) bool {
+	for _, scope := range strings.Fields(strings.ToLower(strings.TrimSpace(scopes))) {
+		if scope == "openid" {
+			return true
+		}
+	}
+	return false
+}
+
 // SettingHandler 系统设置处理器
 type SettingHandler struct {
-	settingService   *service.SettingService
-	emailService     *service.EmailService
-	turnstileService *service.TurnstileService
-	opsService       *service.OpsService
-	soraS3Storage    *service.SoraS3Storage
+	settingService       *service.SettingService
+	emailService         *service.EmailService
+	turnstileService     *service.TurnstileService
+	opsService           *service.OpsService
+	paymentConfigService *service.PaymentConfigService
+	paymentService       *service.PaymentService
 }
 
 // NewSettingHandler 创建系统设置处理器
-func NewSettingHandler(settingService *service.SettingService, emailService *service.EmailService, turnstileService *service.TurnstileService, opsService *service.OpsService, soraS3Storage *service.SoraS3Storage) *SettingHandler {
+func NewSettingHandler(settingService *service.SettingService, emailService *service.EmailService, turnstileService *service.TurnstileService, opsService *service.OpsService, paymentConfigService *service.PaymentConfigService, paymentService *service.PaymentService) *SettingHandler {
 	return &SettingHandler{
-		settingService:   settingService,
-		emailService:     emailService,
-		turnstileService: turnstileService,
-		opsService:       opsService,
-		soraS3Storage:    soraS3Storage,
+		settingService:       settingService,
+		emailService:         emailService,
+		turnstileService:     turnstileService,
+		opsService:           opsService,
+		paymentConfigService: paymentConfigService,
+		paymentService:       paymentService,
 	}
 }
 
@@ -72,6 +83,15 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 			GroupID:      sub.GroupID,
 			ValidityDays: sub.ValidityDays,
 		})
+	}
+
+	// Load payment config
+	var paymentCfg *service.PaymentConfig
+	if h.paymentConfigService != nil {
+		paymentCfg, _ = h.paymentConfigService.GetPaymentConfig(c.Request.Context())
+	}
+	if paymentCfg == nil {
+		paymentCfg = &service.PaymentConfig{}
 	}
 
 	response.Success(c, dto.SystemSettings{
@@ -98,6 +118,28 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		LinuxDoConnectClientID:               settings.LinuxDoConnectClientID,
 		LinuxDoConnectClientSecretConfigured: settings.LinuxDoConnectClientSecretConfigured,
 		LinuxDoConnectRedirectURL:            settings.LinuxDoConnectRedirectURL,
+		OIDCConnectEnabled:                   settings.OIDCConnectEnabled,
+		OIDCConnectProviderName:              settings.OIDCConnectProviderName,
+		OIDCConnectClientID:                  settings.OIDCConnectClientID,
+		OIDCConnectClientSecretConfigured:    settings.OIDCConnectClientSecretConfigured,
+		OIDCConnectIssuerURL:                 settings.OIDCConnectIssuerURL,
+		OIDCConnectDiscoveryURL:              settings.OIDCConnectDiscoveryURL,
+		OIDCConnectAuthorizeURL:              settings.OIDCConnectAuthorizeURL,
+		OIDCConnectTokenURL:                  settings.OIDCConnectTokenURL,
+		OIDCConnectUserInfoURL:               settings.OIDCConnectUserInfoURL,
+		OIDCConnectJWKSURL:                   settings.OIDCConnectJWKSURL,
+		OIDCConnectScopes:                    settings.OIDCConnectScopes,
+		OIDCConnectRedirectURL:               settings.OIDCConnectRedirectURL,
+		OIDCConnectFrontendRedirectURL:       settings.OIDCConnectFrontendRedirectURL,
+		OIDCConnectTokenAuthMethod:           settings.OIDCConnectTokenAuthMethod,
+		OIDCConnectUsePKCE:                   settings.OIDCConnectUsePKCE,
+		OIDCConnectValidateIDToken:           settings.OIDCConnectValidateIDToken,
+		OIDCConnectAllowedSigningAlgs:        settings.OIDCConnectAllowedSigningAlgs,
+		OIDCConnectClockSkewSeconds:          settings.OIDCConnectClockSkewSeconds,
+		OIDCConnectRequireEmailVerified:      settings.OIDCConnectRequireEmailVerified,
+		OIDCConnectUserInfoEmailPath:         settings.OIDCConnectUserInfoEmailPath,
+		OIDCConnectUserInfoIDPath:            settings.OIDCConnectUserInfoIDPath,
+		OIDCConnectUserInfoUsernamePath:      settings.OIDCConnectUserInfoUsernamePath,
 		SiteName:                             settings.SiteName,
 		SiteLogo:                             settings.SiteLogo,
 		SiteSubtitle:                         settings.SiteSubtitle,
@@ -108,7 +150,8 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		HideCcsImportButton:                  settings.HideCcsImportButton,
 		PurchaseSubscriptionEnabled:          settings.PurchaseSubscriptionEnabled,
 		PurchaseSubscriptionURL:              settings.PurchaseSubscriptionURL,
-		SoraClientEnabled:                    settings.SoraClientEnabled,
+		TableDefaultPageSize:                 settings.TableDefaultPageSize,
+		TablePageSizeOptions:                 settings.TablePageSizeOptions,
 		CustomMenuItems:                      dto.ParseCustomMenuItems(settings.CustomMenuItems),
 		CustomEndpoints:                      dto.ParseCustomEndpoints(settings.CustomEndpoints),
 		DefaultConcurrency:                   settings.DefaultConcurrency,
@@ -131,6 +174,25 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		BackendModeEnabled:                   settings.BackendModeEnabled,
 		EnableFingerprintUnification:         settings.EnableFingerprintUnification,
 		EnableMetadataPassthrough:            settings.EnableMetadataPassthrough,
+		EnableCCHSigning:                     settings.EnableCCHSigning,
+		PaymentEnabled:                       paymentCfg.Enabled,
+		PaymentMinAmount:                     paymentCfg.MinAmount,
+		PaymentMaxAmount:                     paymentCfg.MaxAmount,
+		PaymentDailyLimit:                    paymentCfg.DailyLimit,
+		PaymentOrderTimeoutMin:               paymentCfg.OrderTimeoutMin,
+		PaymentMaxPendingOrders:              paymentCfg.MaxPendingOrders,
+		PaymentEnabledTypes:                  paymentCfg.EnabledTypes,
+		PaymentBalanceDisabled:               paymentCfg.BalanceDisabled,
+		PaymentLoadBalanceStrat:              paymentCfg.LoadBalanceStrategy,
+		PaymentProductNamePrefix:             paymentCfg.ProductNamePrefix,
+		PaymentProductNameSuffix:             paymentCfg.ProductNameSuffix,
+		PaymentHelpImageURL:                  paymentCfg.HelpImageURL,
+		PaymentHelpText:                      paymentCfg.HelpText,
+		PaymentCancelRateLimitEnabled:        paymentCfg.CancelRateLimitEnabled,
+		PaymentCancelRateLimitMax:            paymentCfg.CancelRateLimitMax,
+		PaymentCancelRateLimitWindow:         paymentCfg.CancelRateLimitWindow,
+		PaymentCancelRateLimitUnit:           paymentCfg.CancelRateLimitUnit,
+		PaymentCancelRateLimitMode:           paymentCfg.CancelRateLimitMode,
 	})
 }
 
@@ -166,6 +228,30 @@ type UpdateSettingsRequest struct {
 	LinuxDoConnectClientSecret string `json:"linuxdo_connect_client_secret"`
 	LinuxDoConnectRedirectURL  string `json:"linuxdo_connect_redirect_url"`
 
+	// Generic OIDC OAuth 登录
+	OIDCConnectEnabled              bool   `json:"oidc_connect_enabled"`
+	OIDCConnectProviderName         string `json:"oidc_connect_provider_name"`
+	OIDCConnectClientID             string `json:"oidc_connect_client_id"`
+	OIDCConnectClientSecret         string `json:"oidc_connect_client_secret"`
+	OIDCConnectIssuerURL            string `json:"oidc_connect_issuer_url"`
+	OIDCConnectDiscoveryURL         string `json:"oidc_connect_discovery_url"`
+	OIDCConnectAuthorizeURL         string `json:"oidc_connect_authorize_url"`
+	OIDCConnectTokenURL             string `json:"oidc_connect_token_url"`
+	OIDCConnectUserInfoURL          string `json:"oidc_connect_userinfo_url"`
+	OIDCConnectJWKSURL              string `json:"oidc_connect_jwks_url"`
+	OIDCConnectScopes               string `json:"oidc_connect_scopes"`
+	OIDCConnectRedirectURL          string `json:"oidc_connect_redirect_url"`
+	OIDCConnectFrontendRedirectURL  string `json:"oidc_connect_frontend_redirect_url"`
+	OIDCConnectTokenAuthMethod      string `json:"oidc_connect_token_auth_method"`
+	OIDCConnectUsePKCE              bool   `json:"oidc_connect_use_pkce"`
+	OIDCConnectValidateIDToken      bool   `json:"oidc_connect_validate_id_token"`
+	OIDCConnectAllowedSigningAlgs   string `json:"oidc_connect_allowed_signing_algs"`
+	OIDCConnectClockSkewSeconds     int    `json:"oidc_connect_clock_skew_seconds"`
+	OIDCConnectRequireEmailVerified bool   `json:"oidc_connect_require_email_verified"`
+	OIDCConnectUserInfoEmailPath    string `json:"oidc_connect_userinfo_email_path"`
+	OIDCConnectUserInfoIDPath       string `json:"oidc_connect_userinfo_id_path"`
+	OIDCConnectUserInfoUsernamePath string `json:"oidc_connect_userinfo_username_path"`
+
 	// OEM设置
 	SiteName                    string                `json:"site_name"`
 	SiteLogo                    string                `json:"site_logo"`
@@ -177,7 +263,8 @@ type UpdateSettingsRequest struct {
 	HideCcsImportButton         bool                  `json:"hide_ccs_import_button"`
 	PurchaseSubscriptionEnabled *bool                 `json:"purchase_subscription_enabled"`
 	PurchaseSubscriptionURL     *string               `json:"purchase_subscription_url"`
-	SoraClientEnabled           bool                  `json:"sora_client_enabled"`
+	TableDefaultPageSize        int                   `json:"table_default_page_size"`
+	TablePageSizeOptions        []int                 `json:"table_page_size_options"`
 	CustomMenuItems             *[]dto.CustomMenuItem `json:"custom_menu_items"`
 	CustomEndpoints             *[]dto.CustomEndpoint `json:"custom_endpoints"`
 
@@ -215,6 +302,29 @@ type UpdateSettingsRequest struct {
 	// Gateway forwarding behavior
 	EnableFingerprintUnification *bool `json:"enable_fingerprint_unification"`
 	EnableMetadataPassthrough    *bool `json:"enable_metadata_passthrough"`
+	EnableCCHSigning             *bool `json:"enable_cch_signing"`
+
+	// Payment configuration (integrated into settings, full replace)
+	PaymentEnabled           *bool    `json:"payment_enabled"`
+	PaymentMinAmount         *float64 `json:"payment_min_amount"`
+	PaymentMaxAmount         *float64 `json:"payment_max_amount"`
+	PaymentDailyLimit        *float64 `json:"payment_daily_limit"`
+	PaymentOrderTimeoutMin   *int     `json:"payment_order_timeout_minutes"`
+	PaymentMaxPendingOrders  *int     `json:"payment_max_pending_orders"`
+	PaymentEnabledTypes      []string `json:"payment_enabled_types"`
+	PaymentBalanceDisabled   *bool    `json:"payment_balance_disabled"`
+	PaymentLoadBalanceStrat  *string  `json:"payment_load_balance_strategy"`
+	PaymentProductNamePrefix *string  `json:"payment_product_name_prefix"`
+	PaymentProductNameSuffix *string  `json:"payment_product_name_suffix"`
+	PaymentHelpImageURL      *string  `json:"payment_help_image_url"`
+	PaymentHelpText          *string  `json:"payment_help_text"`
+
+	// Cancel rate limit
+	PaymentCancelRateLimitEnabled *bool   `json:"payment_cancel_rate_limit_enabled"`
+	PaymentCancelRateLimitMax     *int    `json:"payment_cancel_rate_limit_max"`
+	PaymentCancelRateLimitWindow  *int    `json:"payment_cancel_rate_limit_window"`
+	PaymentCancelRateLimitUnit    *string `json:"payment_cancel_rate_limit_unit"`
+	PaymentCancelRateLimitMode    *string `json:"payment_cancel_rate_limit_window_mode"`
 }
 
 // UpdateSettings 更新系统设置
@@ -238,6 +348,13 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 	}
 	if req.DefaultBalance < 0 {
 		req.DefaultBalance = 0
+	}
+	// 通用表格配置：兼容旧客户端未传字段时保留当前值。
+	if req.TableDefaultPageSize <= 0 {
+		req.TableDefaultPageSize = previousSettings.TableDefaultPageSize
+	}
+	if req.TablePageSizeOptions == nil {
+		req.TablePageSizeOptions = previousSettings.TablePageSizeOptions
 	}
 	req.SMTPHost = strings.TrimSpace(req.SMTPHost)
 	req.SMTPUsername = strings.TrimSpace(req.SMTPUsername)
@@ -323,6 +440,122 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 				return
 			}
 			req.LinuxDoConnectClientSecret = previousSettings.LinuxDoConnectClientSecret
+		}
+	}
+
+	// Generic OIDC 参数验证
+	if req.OIDCConnectEnabled {
+		req.OIDCConnectProviderName = strings.TrimSpace(req.OIDCConnectProviderName)
+		req.OIDCConnectClientID = strings.TrimSpace(req.OIDCConnectClientID)
+		req.OIDCConnectClientSecret = strings.TrimSpace(req.OIDCConnectClientSecret)
+		req.OIDCConnectIssuerURL = strings.TrimSpace(req.OIDCConnectIssuerURL)
+		req.OIDCConnectDiscoveryURL = strings.TrimSpace(req.OIDCConnectDiscoveryURL)
+		req.OIDCConnectAuthorizeURL = strings.TrimSpace(req.OIDCConnectAuthorizeURL)
+		req.OIDCConnectTokenURL = strings.TrimSpace(req.OIDCConnectTokenURL)
+		req.OIDCConnectUserInfoURL = strings.TrimSpace(req.OIDCConnectUserInfoURL)
+		req.OIDCConnectJWKSURL = strings.TrimSpace(req.OIDCConnectJWKSURL)
+		req.OIDCConnectScopes = strings.TrimSpace(req.OIDCConnectScopes)
+		req.OIDCConnectRedirectURL = strings.TrimSpace(req.OIDCConnectRedirectURL)
+		req.OIDCConnectFrontendRedirectURL = strings.TrimSpace(req.OIDCConnectFrontendRedirectURL)
+		req.OIDCConnectTokenAuthMethod = strings.ToLower(strings.TrimSpace(req.OIDCConnectTokenAuthMethod))
+		req.OIDCConnectAllowedSigningAlgs = strings.TrimSpace(req.OIDCConnectAllowedSigningAlgs)
+		req.OIDCConnectUserInfoEmailPath = strings.TrimSpace(req.OIDCConnectUserInfoEmailPath)
+		req.OIDCConnectUserInfoIDPath = strings.TrimSpace(req.OIDCConnectUserInfoIDPath)
+		req.OIDCConnectUserInfoUsernamePath = strings.TrimSpace(req.OIDCConnectUserInfoUsernamePath)
+
+		if req.OIDCConnectProviderName == "" {
+			req.OIDCConnectProviderName = "OIDC"
+		}
+		if req.OIDCConnectClientID == "" {
+			response.BadRequest(c, "OIDC Client ID is required when enabled")
+			return
+		}
+		if req.OIDCConnectIssuerURL == "" {
+			response.BadRequest(c, "OIDC Issuer URL is required when enabled")
+			return
+		}
+		if err := config.ValidateAbsoluteHTTPURL(req.OIDCConnectIssuerURL); err != nil {
+			response.BadRequest(c, "OIDC Issuer URL must be an absolute http(s) URL")
+			return
+		}
+		if req.OIDCConnectDiscoveryURL != "" {
+			if err := config.ValidateAbsoluteHTTPURL(req.OIDCConnectDiscoveryURL); err != nil {
+				response.BadRequest(c, "OIDC Discovery URL must be an absolute http(s) URL")
+				return
+			}
+		}
+		if req.OIDCConnectAuthorizeURL != "" {
+			if err := config.ValidateAbsoluteHTTPURL(req.OIDCConnectAuthorizeURL); err != nil {
+				response.BadRequest(c, "OIDC Authorize URL must be an absolute http(s) URL")
+				return
+			}
+		}
+		if req.OIDCConnectTokenURL != "" {
+			if err := config.ValidateAbsoluteHTTPURL(req.OIDCConnectTokenURL); err != nil {
+				response.BadRequest(c, "OIDC Token URL must be an absolute http(s) URL")
+				return
+			}
+		}
+		if req.OIDCConnectUserInfoURL != "" {
+			if err := config.ValidateAbsoluteHTTPURL(req.OIDCConnectUserInfoURL); err != nil {
+				response.BadRequest(c, "OIDC UserInfo URL must be an absolute http(s) URL")
+				return
+			}
+		}
+		if req.OIDCConnectRedirectURL == "" {
+			response.BadRequest(c, "OIDC Redirect URL is required when enabled")
+			return
+		}
+		if err := config.ValidateAbsoluteHTTPURL(req.OIDCConnectRedirectURL); err != nil {
+			response.BadRequest(c, "OIDC Redirect URL must be an absolute http(s) URL")
+			return
+		}
+		if req.OIDCConnectFrontendRedirectURL == "" {
+			response.BadRequest(c, "OIDC Frontend Redirect URL is required when enabled")
+			return
+		}
+		if err := config.ValidateFrontendRedirectURL(req.OIDCConnectFrontendRedirectURL); err != nil {
+			response.BadRequest(c, "OIDC Frontend Redirect URL is invalid")
+			return
+		}
+		if !scopesContainOpenID(req.OIDCConnectScopes) {
+			response.BadRequest(c, "OIDC scopes must contain openid")
+			return
+		}
+		switch req.OIDCConnectTokenAuthMethod {
+		case "", "client_secret_post", "client_secret_basic", "none":
+		default:
+			response.BadRequest(c, "OIDC Token Auth Method must be one of client_secret_post/client_secret_basic/none")
+			return
+		}
+		if req.OIDCConnectTokenAuthMethod == "none" && !req.OIDCConnectUsePKCE {
+			response.BadRequest(c, "OIDC PKCE must be enabled when token_auth_method=none")
+			return
+		}
+		if req.OIDCConnectClockSkewSeconds < 0 || req.OIDCConnectClockSkewSeconds > 600 {
+			response.BadRequest(c, "OIDC clock skew seconds must be between 0 and 600")
+			return
+		}
+		if req.OIDCConnectValidateIDToken {
+			if req.OIDCConnectAllowedSigningAlgs == "" {
+				response.BadRequest(c, "OIDC Allowed Signing Algs is required when validate_id_token=true")
+				return
+			}
+		}
+		if req.OIDCConnectJWKSURL != "" {
+			if err := config.ValidateAbsoluteHTTPURL(req.OIDCConnectJWKSURL); err != nil {
+				response.BadRequest(c, "OIDC JWKS URL must be an absolute http(s) URL")
+				return
+			}
+		}
+		if req.OIDCConnectTokenAuthMethod == "" || req.OIDCConnectTokenAuthMethod == "client_secret_post" || req.OIDCConnectTokenAuthMethod == "client_secret_basic" {
+			if req.OIDCConnectClientSecret == "" {
+				if previousSettings.OIDCConnectClientSecret == "" {
+					response.BadRequest(c, "OIDC Client Secret is required when enabled")
+					return
+				}
+				req.OIDCConnectClientSecret = previousSettings.OIDCConnectClientSecret
+			}
 		}
 	}
 
@@ -556,6 +789,28 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		LinuxDoConnectClientID:           req.LinuxDoConnectClientID,
 		LinuxDoConnectClientSecret:       req.LinuxDoConnectClientSecret,
 		LinuxDoConnectRedirectURL:        req.LinuxDoConnectRedirectURL,
+		OIDCConnectEnabled:               req.OIDCConnectEnabled,
+		OIDCConnectProviderName:          req.OIDCConnectProviderName,
+		OIDCConnectClientID:              req.OIDCConnectClientID,
+		OIDCConnectClientSecret:          req.OIDCConnectClientSecret,
+		OIDCConnectIssuerURL:             req.OIDCConnectIssuerURL,
+		OIDCConnectDiscoveryURL:          req.OIDCConnectDiscoveryURL,
+		OIDCConnectAuthorizeURL:          req.OIDCConnectAuthorizeURL,
+		OIDCConnectTokenURL:              req.OIDCConnectTokenURL,
+		OIDCConnectUserInfoURL:           req.OIDCConnectUserInfoURL,
+		OIDCConnectJWKSURL:               req.OIDCConnectJWKSURL,
+		OIDCConnectScopes:                req.OIDCConnectScopes,
+		OIDCConnectRedirectURL:           req.OIDCConnectRedirectURL,
+		OIDCConnectFrontendRedirectURL:   req.OIDCConnectFrontendRedirectURL,
+		OIDCConnectTokenAuthMethod:       req.OIDCConnectTokenAuthMethod,
+		OIDCConnectUsePKCE:               req.OIDCConnectUsePKCE,
+		OIDCConnectValidateIDToken:       req.OIDCConnectValidateIDToken,
+		OIDCConnectAllowedSigningAlgs:    req.OIDCConnectAllowedSigningAlgs,
+		OIDCConnectClockSkewSeconds:      req.OIDCConnectClockSkewSeconds,
+		OIDCConnectRequireEmailVerified:  req.OIDCConnectRequireEmailVerified,
+		OIDCConnectUserInfoEmailPath:     req.OIDCConnectUserInfoEmailPath,
+		OIDCConnectUserInfoIDPath:        req.OIDCConnectUserInfoIDPath,
+		OIDCConnectUserInfoUsernamePath:  req.OIDCConnectUserInfoUsernamePath,
 		SiteName:                         req.SiteName,
 		SiteLogo:                         req.SiteLogo,
 		SiteSubtitle:                     req.SiteSubtitle,
@@ -566,7 +821,8 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		HideCcsImportButton:              req.HideCcsImportButton,
 		PurchaseSubscriptionEnabled:      purchaseEnabled,
 		PurchaseSubscriptionURL:          purchaseURL,
-		SoraClientEnabled:                req.SoraClientEnabled,
+		TableDefaultPageSize:             req.TableDefaultPageSize,
+		TablePageSizeOptions:             req.TablePageSizeOptions,
 		CustomMenuItems:                  customMenuJSON,
 		CustomEndpoints:                  customEndpointsJSON,
 		DefaultConcurrency:               req.DefaultConcurrency,
@@ -619,11 +875,50 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 			}
 			return previousSettings.EnableMetadataPassthrough
 		}(),
+		EnableCCHSigning: func() bool {
+			if req.EnableCCHSigning != nil {
+				return *req.EnableCCHSigning
+			}
+			return previousSettings.EnableCCHSigning
+		}(),
 	}
 
 	if err := h.settingService.UpdateSettings(c.Request.Context(), settings); err != nil {
 		response.ErrorFrom(c, err)
 		return
+	}
+
+	// Update payment configuration (integrated into system settings).
+	// Skip if no payment fields were provided (prevents accidental wipe).
+	if h.paymentConfigService != nil && hasPaymentFields(req) {
+		paymentReq := service.UpdatePaymentConfigRequest{
+			Enabled:                req.PaymentEnabled,
+			MinAmount:              req.PaymentMinAmount,
+			MaxAmount:              req.PaymentMaxAmount,
+			DailyLimit:             req.PaymentDailyLimit,
+			OrderTimeoutMin:        req.PaymentOrderTimeoutMin,
+			MaxPendingOrders:       req.PaymentMaxPendingOrders,
+			EnabledTypes:           req.PaymentEnabledTypes,
+			BalanceDisabled:        req.PaymentBalanceDisabled,
+			LoadBalanceStrategy:    req.PaymentLoadBalanceStrat,
+			ProductNamePrefix:      req.PaymentProductNamePrefix,
+			ProductNameSuffix:      req.PaymentProductNameSuffix,
+			HelpImageURL:           req.PaymentHelpImageURL,
+			HelpText:               req.PaymentHelpText,
+			CancelRateLimitEnabled: req.PaymentCancelRateLimitEnabled,
+			CancelRateLimitMax:     req.PaymentCancelRateLimitMax,
+			CancelRateLimitWindow:  req.PaymentCancelRateLimitWindow,
+			CancelRateLimitUnit:    req.PaymentCancelRateLimitUnit,
+			CancelRateLimitMode:    req.PaymentCancelRateLimitMode,
+		}
+		if err := h.paymentConfigService.UpdatePaymentConfig(c.Request.Context(), paymentReq); err != nil {
+			response.ErrorFrom(c, err)
+			return
+		}
+		// Refresh in-memory provider registry so config changes take effect immediately
+		if h.paymentService != nil {
+			h.paymentService.RefreshProviders(c.Request.Context())
+		}
 	}
 
 	h.auditSettingsUpdate(c, previousSettings, settings, req)
@@ -640,6 +935,15 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 			GroupID:      sub.GroupID,
 			ValidityDays: sub.ValidityDays,
 		})
+	}
+
+	// Reload payment config for response
+	var updatedPaymentCfg *service.PaymentConfig
+	if h.paymentConfigService != nil {
+		updatedPaymentCfg, _ = h.paymentConfigService.GetPaymentConfig(c.Request.Context())
+	}
+	if updatedPaymentCfg == nil {
+		updatedPaymentCfg = &service.PaymentConfig{}
 	}
 
 	response.Success(c, dto.SystemSettings{
@@ -666,6 +970,28 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		LinuxDoConnectClientID:               updatedSettings.LinuxDoConnectClientID,
 		LinuxDoConnectClientSecretConfigured: updatedSettings.LinuxDoConnectClientSecretConfigured,
 		LinuxDoConnectRedirectURL:            updatedSettings.LinuxDoConnectRedirectURL,
+		OIDCConnectEnabled:                   updatedSettings.OIDCConnectEnabled,
+		OIDCConnectProviderName:              updatedSettings.OIDCConnectProviderName,
+		OIDCConnectClientID:                  updatedSettings.OIDCConnectClientID,
+		OIDCConnectClientSecretConfigured:    updatedSettings.OIDCConnectClientSecretConfigured,
+		OIDCConnectIssuerURL:                 updatedSettings.OIDCConnectIssuerURL,
+		OIDCConnectDiscoveryURL:              updatedSettings.OIDCConnectDiscoveryURL,
+		OIDCConnectAuthorizeURL:              updatedSettings.OIDCConnectAuthorizeURL,
+		OIDCConnectTokenURL:                  updatedSettings.OIDCConnectTokenURL,
+		OIDCConnectUserInfoURL:               updatedSettings.OIDCConnectUserInfoURL,
+		OIDCConnectJWKSURL:                   updatedSettings.OIDCConnectJWKSURL,
+		OIDCConnectScopes:                    updatedSettings.OIDCConnectScopes,
+		OIDCConnectRedirectURL:               updatedSettings.OIDCConnectRedirectURL,
+		OIDCConnectFrontendRedirectURL:       updatedSettings.OIDCConnectFrontendRedirectURL,
+		OIDCConnectTokenAuthMethod:           updatedSettings.OIDCConnectTokenAuthMethod,
+		OIDCConnectUsePKCE:                   updatedSettings.OIDCConnectUsePKCE,
+		OIDCConnectValidateIDToken:           updatedSettings.OIDCConnectValidateIDToken,
+		OIDCConnectAllowedSigningAlgs:        updatedSettings.OIDCConnectAllowedSigningAlgs,
+		OIDCConnectClockSkewSeconds:          updatedSettings.OIDCConnectClockSkewSeconds,
+		OIDCConnectRequireEmailVerified:      updatedSettings.OIDCConnectRequireEmailVerified,
+		OIDCConnectUserInfoEmailPath:         updatedSettings.OIDCConnectUserInfoEmailPath,
+		OIDCConnectUserInfoIDPath:            updatedSettings.OIDCConnectUserInfoIDPath,
+		OIDCConnectUserInfoUsernamePath:      updatedSettings.OIDCConnectUserInfoUsernamePath,
 		SiteName:                             updatedSettings.SiteName,
 		SiteLogo:                             updatedSettings.SiteLogo,
 		SiteSubtitle:                         updatedSettings.SiteSubtitle,
@@ -676,7 +1002,8 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		HideCcsImportButton:                  updatedSettings.HideCcsImportButton,
 		PurchaseSubscriptionEnabled:          updatedSettings.PurchaseSubscriptionEnabled,
 		PurchaseSubscriptionURL:              updatedSettings.PurchaseSubscriptionURL,
-		SoraClientEnabled:                    updatedSettings.SoraClientEnabled,
+		TableDefaultPageSize:                 updatedSettings.TableDefaultPageSize,
+		TablePageSizeOptions:                 updatedSettings.TablePageSizeOptions,
 		CustomMenuItems:                      dto.ParseCustomMenuItems(updatedSettings.CustomMenuItems),
 		CustomEndpoints:                      dto.ParseCustomEndpoints(updatedSettings.CustomEndpoints),
 		DefaultConcurrency:                   updatedSettings.DefaultConcurrency,
@@ -699,7 +1026,39 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		BackendModeEnabled:                   updatedSettings.BackendModeEnabled,
 		EnableFingerprintUnification:         updatedSettings.EnableFingerprintUnification,
 		EnableMetadataPassthrough:            updatedSettings.EnableMetadataPassthrough,
+		EnableCCHSigning:                     updatedSettings.EnableCCHSigning,
+		PaymentEnabled:                       updatedPaymentCfg.Enabled,
+		PaymentMinAmount:                     updatedPaymentCfg.MinAmount,
+		PaymentMaxAmount:                     updatedPaymentCfg.MaxAmount,
+		PaymentDailyLimit:                    updatedPaymentCfg.DailyLimit,
+		PaymentOrderTimeoutMin:               updatedPaymentCfg.OrderTimeoutMin,
+		PaymentMaxPendingOrders:              updatedPaymentCfg.MaxPendingOrders,
+		PaymentEnabledTypes:                  updatedPaymentCfg.EnabledTypes,
+		PaymentBalanceDisabled:               updatedPaymentCfg.BalanceDisabled,
+		PaymentLoadBalanceStrat:              updatedPaymentCfg.LoadBalanceStrategy,
+		PaymentProductNamePrefix:             updatedPaymentCfg.ProductNamePrefix,
+		PaymentProductNameSuffix:             updatedPaymentCfg.ProductNameSuffix,
+		PaymentHelpImageURL:                  updatedPaymentCfg.HelpImageURL,
+		PaymentHelpText:                      updatedPaymentCfg.HelpText,
+		PaymentCancelRateLimitEnabled:        updatedPaymentCfg.CancelRateLimitEnabled,
+		PaymentCancelRateLimitMax:            updatedPaymentCfg.CancelRateLimitMax,
+		PaymentCancelRateLimitWindow:         updatedPaymentCfg.CancelRateLimitWindow,
+		PaymentCancelRateLimitUnit:           updatedPaymentCfg.CancelRateLimitUnit,
+		PaymentCancelRateLimitMode:           updatedPaymentCfg.CancelRateLimitMode,
 	})
+}
+
+// hasPaymentFields returns true if any payment-related field was explicitly provided.
+func hasPaymentFields(req UpdateSettingsRequest) bool {
+	return req.PaymentEnabled != nil || req.PaymentMinAmount != nil ||
+		req.PaymentMaxAmount != nil || req.PaymentDailyLimit != nil ||
+		req.PaymentOrderTimeoutMin != nil || req.PaymentMaxPendingOrders != nil ||
+		req.PaymentEnabledTypes != nil || req.PaymentBalanceDisabled != nil ||
+		req.PaymentLoadBalanceStrat != nil || req.PaymentProductNamePrefix != nil ||
+		req.PaymentProductNameSuffix != nil || req.PaymentHelpImageURL != nil ||
+		req.PaymentHelpText != nil || req.PaymentCancelRateLimitEnabled != nil ||
+		req.PaymentCancelRateLimitMax != nil || req.PaymentCancelRateLimitWindow != nil ||
+		req.PaymentCancelRateLimitUnit != nil || req.PaymentCancelRateLimitMode != nil
 }
 
 func (h *SettingHandler) auditSettingsUpdate(c *gin.Context, before *service.SystemSettings, after *service.SystemSettings, req UpdateSettingsRequest) {
@@ -783,6 +1142,72 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	}
 	if before.LinuxDoConnectRedirectURL != after.LinuxDoConnectRedirectURL {
 		changed = append(changed, "linuxdo_connect_redirect_url")
+	}
+	if before.OIDCConnectEnabled != after.OIDCConnectEnabled {
+		changed = append(changed, "oidc_connect_enabled")
+	}
+	if before.OIDCConnectProviderName != after.OIDCConnectProviderName {
+		changed = append(changed, "oidc_connect_provider_name")
+	}
+	if before.OIDCConnectClientID != after.OIDCConnectClientID {
+		changed = append(changed, "oidc_connect_client_id")
+	}
+	if req.OIDCConnectClientSecret != "" {
+		changed = append(changed, "oidc_connect_client_secret")
+	}
+	if before.OIDCConnectIssuerURL != after.OIDCConnectIssuerURL {
+		changed = append(changed, "oidc_connect_issuer_url")
+	}
+	if before.OIDCConnectDiscoveryURL != after.OIDCConnectDiscoveryURL {
+		changed = append(changed, "oidc_connect_discovery_url")
+	}
+	if before.OIDCConnectAuthorizeURL != after.OIDCConnectAuthorizeURL {
+		changed = append(changed, "oidc_connect_authorize_url")
+	}
+	if before.OIDCConnectTokenURL != after.OIDCConnectTokenURL {
+		changed = append(changed, "oidc_connect_token_url")
+	}
+	if before.OIDCConnectUserInfoURL != after.OIDCConnectUserInfoURL {
+		changed = append(changed, "oidc_connect_userinfo_url")
+	}
+	if before.OIDCConnectJWKSURL != after.OIDCConnectJWKSURL {
+		changed = append(changed, "oidc_connect_jwks_url")
+	}
+	if before.OIDCConnectScopes != after.OIDCConnectScopes {
+		changed = append(changed, "oidc_connect_scopes")
+	}
+	if before.OIDCConnectRedirectURL != after.OIDCConnectRedirectURL {
+		changed = append(changed, "oidc_connect_redirect_url")
+	}
+	if before.OIDCConnectFrontendRedirectURL != after.OIDCConnectFrontendRedirectURL {
+		changed = append(changed, "oidc_connect_frontend_redirect_url")
+	}
+	if before.OIDCConnectTokenAuthMethod != after.OIDCConnectTokenAuthMethod {
+		changed = append(changed, "oidc_connect_token_auth_method")
+	}
+	if before.OIDCConnectUsePKCE != after.OIDCConnectUsePKCE {
+		changed = append(changed, "oidc_connect_use_pkce")
+	}
+	if before.OIDCConnectValidateIDToken != after.OIDCConnectValidateIDToken {
+		changed = append(changed, "oidc_connect_validate_id_token")
+	}
+	if before.OIDCConnectAllowedSigningAlgs != after.OIDCConnectAllowedSigningAlgs {
+		changed = append(changed, "oidc_connect_allowed_signing_algs")
+	}
+	if before.OIDCConnectClockSkewSeconds != after.OIDCConnectClockSkewSeconds {
+		changed = append(changed, "oidc_connect_clock_skew_seconds")
+	}
+	if before.OIDCConnectRequireEmailVerified != after.OIDCConnectRequireEmailVerified {
+		changed = append(changed, "oidc_connect_require_email_verified")
+	}
+	if before.OIDCConnectUserInfoEmailPath != after.OIDCConnectUserInfoEmailPath {
+		changed = append(changed, "oidc_connect_userinfo_email_path")
+	}
+	if before.OIDCConnectUserInfoIDPath != after.OIDCConnectUserInfoIDPath {
+		changed = append(changed, "oidc_connect_userinfo_id_path")
+	}
+	if before.OIDCConnectUserInfoUsernamePath != after.OIDCConnectUserInfoUsernamePath {
+		changed = append(changed, "oidc_connect_userinfo_username_path")
 	}
 	if before.SiteName != after.SiteName {
 		changed = append(changed, "site_name")
@@ -868,6 +1293,12 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	if before.PurchaseSubscriptionURL != after.PurchaseSubscriptionURL {
 		changed = append(changed, "purchase_subscription_url")
 	}
+	if before.TableDefaultPageSize != after.TableDefaultPageSize {
+		changed = append(changed, "table_default_page_size")
+	}
+	if !equalIntSlice(before.TablePageSizeOptions, after.TablePageSizeOptions) {
+		changed = append(changed, "table_page_size_options")
+	}
 	if before.CustomMenuItems != after.CustomMenuItems {
 		changed = append(changed, "custom_menu_items")
 	}
@@ -876,6 +1307,9 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	}
 	if before.EnableMetadataPassthrough != after.EnableMetadataPassthrough {
 		changed = append(changed, "enable_metadata_passthrough")
+	}
+	if before.EnableCCHSigning != after.EnableCCHSigning {
+		changed = append(changed, "enable_cch_signing")
 	}
 	return changed
 }
@@ -915,6 +1349,18 @@ func equalDefaultSubscriptions(a, b []service.DefaultSubscriptionSetting) bool {
 	}
 	for i := range a {
 		if a[i].GroupID != b[i].GroupID || a[i].ValidityDays != b[i].ValidityDays {
+			return false
+		}
+	}
+	return true
+}
+
+func equalIntSlice(a, b []int) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
 			return false
 		}
 	}
@@ -1205,384 +1651,6 @@ func (h *SettingHandler) GetStreamTimeoutSettings(c *gin.Context) {
 		ThresholdCount:         settings.ThresholdCount,
 		ThresholdWindowMinutes: settings.ThresholdWindowMinutes,
 	})
-}
-
-func toSoraS3SettingsDTO(settings *service.SoraS3Settings) dto.SoraS3Settings {
-	if settings == nil {
-		return dto.SoraS3Settings{}
-	}
-	return dto.SoraS3Settings{
-		Enabled:                   settings.Enabled,
-		Endpoint:                  settings.Endpoint,
-		Region:                    settings.Region,
-		Bucket:                    settings.Bucket,
-		AccessKeyID:               settings.AccessKeyID,
-		SecretAccessKeyConfigured: settings.SecretAccessKeyConfigured,
-		Prefix:                    settings.Prefix,
-		ForcePathStyle:            settings.ForcePathStyle,
-		CDNURL:                    settings.CDNURL,
-		DefaultStorageQuotaBytes:  settings.DefaultStorageQuotaBytes,
-	}
-}
-
-func toSoraS3ProfileDTO(profile service.SoraS3Profile) dto.SoraS3Profile {
-	return dto.SoraS3Profile{
-		ProfileID:                 profile.ProfileID,
-		Name:                      profile.Name,
-		IsActive:                  profile.IsActive,
-		Enabled:                   profile.Enabled,
-		Endpoint:                  profile.Endpoint,
-		Region:                    profile.Region,
-		Bucket:                    profile.Bucket,
-		AccessKeyID:               profile.AccessKeyID,
-		SecretAccessKeyConfigured: profile.SecretAccessKeyConfigured,
-		Prefix:                    profile.Prefix,
-		ForcePathStyle:            profile.ForcePathStyle,
-		CDNURL:                    profile.CDNURL,
-		DefaultStorageQuotaBytes:  profile.DefaultStorageQuotaBytes,
-		UpdatedAt:                 profile.UpdatedAt,
-	}
-}
-
-func validateSoraS3RequiredWhenEnabled(enabled bool, endpoint, bucket, accessKeyID, secretAccessKey string, hasStoredSecret bool) error {
-	if !enabled {
-		return nil
-	}
-	if strings.TrimSpace(endpoint) == "" {
-		return fmt.Errorf("S3 Endpoint is required when enabled")
-	}
-	if strings.TrimSpace(bucket) == "" {
-		return fmt.Errorf("S3 Bucket is required when enabled")
-	}
-	if strings.TrimSpace(accessKeyID) == "" {
-		return fmt.Errorf("S3 Access Key ID is required when enabled")
-	}
-	if strings.TrimSpace(secretAccessKey) != "" || hasStoredSecret {
-		return nil
-	}
-	return fmt.Errorf("S3 Secret Access Key is required when enabled")
-}
-
-func findSoraS3ProfileByID(items []service.SoraS3Profile, profileID string) *service.SoraS3Profile {
-	for idx := range items {
-		if items[idx].ProfileID == profileID {
-			return &items[idx]
-		}
-	}
-	return nil
-}
-
-// GetSoraS3Settings 获取 Sora S3 存储配置（兼容旧单配置接口）
-// GET /api/v1/admin/settings/sora-s3
-func (h *SettingHandler) GetSoraS3Settings(c *gin.Context) {
-	settings, err := h.settingService.GetSoraS3Settings(c.Request.Context())
-	if err != nil {
-		response.ErrorFrom(c, err)
-		return
-	}
-	response.Success(c, toSoraS3SettingsDTO(settings))
-}
-
-// ListSoraS3Profiles 获取 Sora S3 多配置
-// GET /api/v1/admin/settings/sora-s3/profiles
-func (h *SettingHandler) ListSoraS3Profiles(c *gin.Context) {
-	result, err := h.settingService.ListSoraS3Profiles(c.Request.Context())
-	if err != nil {
-		response.ErrorFrom(c, err)
-		return
-	}
-	items := make([]dto.SoraS3Profile, 0, len(result.Items))
-	for idx := range result.Items {
-		items = append(items, toSoraS3ProfileDTO(result.Items[idx]))
-	}
-	response.Success(c, dto.ListSoraS3ProfilesResponse{
-		ActiveProfileID: result.ActiveProfileID,
-		Items:           items,
-	})
-}
-
-// UpdateSoraS3SettingsRequest 更新/测试 Sora S3 配置请求（兼容旧接口）
-type UpdateSoraS3SettingsRequest struct {
-	ProfileID                string `json:"profile_id"`
-	Enabled                  bool   `json:"enabled"`
-	Endpoint                 string `json:"endpoint"`
-	Region                   string `json:"region"`
-	Bucket                   string `json:"bucket"`
-	AccessKeyID              string `json:"access_key_id"`
-	SecretAccessKey          string `json:"secret_access_key"`
-	Prefix                   string `json:"prefix"`
-	ForcePathStyle           bool   `json:"force_path_style"`
-	CDNURL                   string `json:"cdn_url"`
-	DefaultStorageQuotaBytes int64  `json:"default_storage_quota_bytes"`
-}
-
-type CreateSoraS3ProfileRequest struct {
-	ProfileID                string `json:"profile_id"`
-	Name                     string `json:"name"`
-	SetActive                bool   `json:"set_active"`
-	Enabled                  bool   `json:"enabled"`
-	Endpoint                 string `json:"endpoint"`
-	Region                   string `json:"region"`
-	Bucket                   string `json:"bucket"`
-	AccessKeyID              string `json:"access_key_id"`
-	SecretAccessKey          string `json:"secret_access_key"`
-	Prefix                   string `json:"prefix"`
-	ForcePathStyle           bool   `json:"force_path_style"`
-	CDNURL                   string `json:"cdn_url"`
-	DefaultStorageQuotaBytes int64  `json:"default_storage_quota_bytes"`
-}
-
-type UpdateSoraS3ProfileRequest struct {
-	Name                     string `json:"name"`
-	Enabled                  bool   `json:"enabled"`
-	Endpoint                 string `json:"endpoint"`
-	Region                   string `json:"region"`
-	Bucket                   string `json:"bucket"`
-	AccessKeyID              string `json:"access_key_id"`
-	SecretAccessKey          string `json:"secret_access_key"`
-	Prefix                   string `json:"prefix"`
-	ForcePathStyle           bool   `json:"force_path_style"`
-	CDNURL                   string `json:"cdn_url"`
-	DefaultStorageQuotaBytes int64  `json:"default_storage_quota_bytes"`
-}
-
-// CreateSoraS3Profile 创建 Sora S3 配置
-// POST /api/v1/admin/settings/sora-s3/profiles
-func (h *SettingHandler) CreateSoraS3Profile(c *gin.Context) {
-	var req CreateSoraS3ProfileRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
-		return
-	}
-
-	if req.DefaultStorageQuotaBytes < 0 {
-		req.DefaultStorageQuotaBytes = 0
-	}
-	if strings.TrimSpace(req.Name) == "" {
-		response.BadRequest(c, "Name is required")
-		return
-	}
-	if strings.TrimSpace(req.ProfileID) == "" {
-		response.BadRequest(c, "Profile ID is required")
-		return
-	}
-	if err := validateSoraS3RequiredWhenEnabled(req.Enabled, req.Endpoint, req.Bucket, req.AccessKeyID, req.SecretAccessKey, false); err != nil {
-		response.BadRequest(c, err.Error())
-		return
-	}
-
-	created, err := h.settingService.CreateSoraS3Profile(c.Request.Context(), &service.SoraS3Profile{
-		ProfileID:                req.ProfileID,
-		Name:                     req.Name,
-		Enabled:                  req.Enabled,
-		Endpoint:                 req.Endpoint,
-		Region:                   req.Region,
-		Bucket:                   req.Bucket,
-		AccessKeyID:              req.AccessKeyID,
-		SecretAccessKey:          req.SecretAccessKey,
-		Prefix:                   req.Prefix,
-		ForcePathStyle:           req.ForcePathStyle,
-		CDNURL:                   req.CDNURL,
-		DefaultStorageQuotaBytes: req.DefaultStorageQuotaBytes,
-	}, req.SetActive)
-	if err != nil {
-		response.ErrorFrom(c, err)
-		return
-	}
-
-	response.Success(c, toSoraS3ProfileDTO(*created))
-}
-
-// UpdateSoraS3Profile 更新 Sora S3 配置
-// PUT /api/v1/admin/settings/sora-s3/profiles/:profile_id
-func (h *SettingHandler) UpdateSoraS3Profile(c *gin.Context) {
-	profileID := strings.TrimSpace(c.Param("profile_id"))
-	if profileID == "" {
-		response.BadRequest(c, "Profile ID is required")
-		return
-	}
-
-	var req UpdateSoraS3ProfileRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
-		return
-	}
-
-	if req.DefaultStorageQuotaBytes < 0 {
-		req.DefaultStorageQuotaBytes = 0
-	}
-	if strings.TrimSpace(req.Name) == "" {
-		response.BadRequest(c, "Name is required")
-		return
-	}
-
-	existingList, err := h.settingService.ListSoraS3Profiles(c.Request.Context())
-	if err != nil {
-		response.ErrorFrom(c, err)
-		return
-	}
-	existing := findSoraS3ProfileByID(existingList.Items, profileID)
-	if existing == nil {
-		response.ErrorFrom(c, service.ErrSoraS3ProfileNotFound)
-		return
-	}
-	if err := validateSoraS3RequiredWhenEnabled(req.Enabled, req.Endpoint, req.Bucket, req.AccessKeyID, req.SecretAccessKey, existing.SecretAccessKeyConfigured); err != nil {
-		response.BadRequest(c, err.Error())
-		return
-	}
-
-	updated, updateErr := h.settingService.UpdateSoraS3Profile(c.Request.Context(), profileID, &service.SoraS3Profile{
-		Name:                     req.Name,
-		Enabled:                  req.Enabled,
-		Endpoint:                 req.Endpoint,
-		Region:                   req.Region,
-		Bucket:                   req.Bucket,
-		AccessKeyID:              req.AccessKeyID,
-		SecretAccessKey:          req.SecretAccessKey,
-		Prefix:                   req.Prefix,
-		ForcePathStyle:           req.ForcePathStyle,
-		CDNURL:                   req.CDNURL,
-		DefaultStorageQuotaBytes: req.DefaultStorageQuotaBytes,
-	})
-	if updateErr != nil {
-		response.ErrorFrom(c, updateErr)
-		return
-	}
-
-	response.Success(c, toSoraS3ProfileDTO(*updated))
-}
-
-// DeleteSoraS3Profile 删除 Sora S3 配置
-// DELETE /api/v1/admin/settings/sora-s3/profiles/:profile_id
-func (h *SettingHandler) DeleteSoraS3Profile(c *gin.Context) {
-	profileID := strings.TrimSpace(c.Param("profile_id"))
-	if profileID == "" {
-		response.BadRequest(c, "Profile ID is required")
-		return
-	}
-	if err := h.settingService.DeleteSoraS3Profile(c.Request.Context(), profileID); err != nil {
-		response.ErrorFrom(c, err)
-		return
-	}
-	response.Success(c, gin.H{"deleted": true})
-}
-
-// SetActiveSoraS3Profile 切换激活 Sora S3 配置
-// POST /api/v1/admin/settings/sora-s3/profiles/:profile_id/activate
-func (h *SettingHandler) SetActiveSoraS3Profile(c *gin.Context) {
-	profileID := strings.TrimSpace(c.Param("profile_id"))
-	if profileID == "" {
-		response.BadRequest(c, "Profile ID is required")
-		return
-	}
-	active, err := h.settingService.SetActiveSoraS3Profile(c.Request.Context(), profileID)
-	if err != nil {
-		response.ErrorFrom(c, err)
-		return
-	}
-	response.Success(c, toSoraS3ProfileDTO(*active))
-}
-
-// UpdateSoraS3Settings 更新 Sora S3 存储配置（兼容旧单配置接口）
-// PUT /api/v1/admin/settings/sora-s3
-func (h *SettingHandler) UpdateSoraS3Settings(c *gin.Context) {
-	var req UpdateSoraS3SettingsRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
-		return
-	}
-
-	existing, err := h.settingService.GetSoraS3Settings(c.Request.Context())
-	if err != nil {
-		response.ErrorFrom(c, err)
-		return
-	}
-
-	if req.DefaultStorageQuotaBytes < 0 {
-		req.DefaultStorageQuotaBytes = 0
-	}
-	if err := validateSoraS3RequiredWhenEnabled(req.Enabled, req.Endpoint, req.Bucket, req.AccessKeyID, req.SecretAccessKey, existing.SecretAccessKeyConfigured); err != nil {
-		response.BadRequest(c, err.Error())
-		return
-	}
-
-	settings := &service.SoraS3Settings{
-		Enabled:                  req.Enabled,
-		Endpoint:                 req.Endpoint,
-		Region:                   req.Region,
-		Bucket:                   req.Bucket,
-		AccessKeyID:              req.AccessKeyID,
-		SecretAccessKey:          req.SecretAccessKey,
-		Prefix:                   req.Prefix,
-		ForcePathStyle:           req.ForcePathStyle,
-		CDNURL:                   req.CDNURL,
-		DefaultStorageQuotaBytes: req.DefaultStorageQuotaBytes,
-	}
-	if err := h.settingService.SetSoraS3Settings(c.Request.Context(), settings); err != nil {
-		response.ErrorFrom(c, err)
-		return
-	}
-
-	updatedSettings, err := h.settingService.GetSoraS3Settings(c.Request.Context())
-	if err != nil {
-		response.ErrorFrom(c, err)
-		return
-	}
-	response.Success(c, toSoraS3SettingsDTO(updatedSettings))
-}
-
-// TestSoraS3Connection 测试 Sora S3 连接（HeadBucket）
-// POST /api/v1/admin/settings/sora-s3/test
-func (h *SettingHandler) TestSoraS3Connection(c *gin.Context) {
-	if h.soraS3Storage == nil {
-		response.Error(c, 500, "S3 存储服务未初始化")
-		return
-	}
-
-	var req UpdateSoraS3SettingsRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
-		return
-	}
-	if !req.Enabled {
-		response.BadRequest(c, "S3 未启用，无法测试连接")
-		return
-	}
-
-	if req.SecretAccessKey == "" {
-		if req.ProfileID != "" {
-			profiles, err := h.settingService.ListSoraS3Profiles(c.Request.Context())
-			if err == nil {
-				profile := findSoraS3ProfileByID(profiles.Items, req.ProfileID)
-				if profile != nil {
-					req.SecretAccessKey = profile.SecretAccessKey
-				}
-			}
-		}
-		if req.SecretAccessKey == "" {
-			existing, err := h.settingService.GetSoraS3Settings(c.Request.Context())
-			if err == nil {
-				req.SecretAccessKey = existing.SecretAccessKey
-			}
-		}
-	}
-
-	testCfg := &service.SoraS3Settings{
-		Enabled:         true,
-		Endpoint:        req.Endpoint,
-		Region:          req.Region,
-		Bucket:          req.Bucket,
-		AccessKeyID:     req.AccessKeyID,
-		SecretAccessKey: req.SecretAccessKey,
-		Prefix:          req.Prefix,
-		ForcePathStyle:  req.ForcePathStyle,
-		CDNURL:          req.CDNURL,
-	}
-	if err := h.soraS3Storage.TestConnectionWithSettings(c.Request.Context(), testCfg); err != nil {
-		response.Error(c, 400, "S3 连接测试失败: "+err.Error())
-		return
-	}
-	response.Success(c, gin.H{"message": "S3 连接成功"})
 }
 
 // GetRectifierSettings 获取请求整流器配置

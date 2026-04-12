@@ -18,6 +18,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/usagelog"
 	"github.com/Wei-Shaw/sub2api/ent/user"
 	"github.com/Wei-Shaw/sub2api/ent/usersubscription"
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 )
 
 // GroupCreate is the builder for creating a Group entity.
@@ -258,76 +259,6 @@ func (_c *GroupCreate) SetNillableImagePrice4k(v *float64) *GroupCreate {
 	return _c
 }
 
-// SetSoraImagePrice360 sets the "sora_image_price_360" field.
-func (_c *GroupCreate) SetSoraImagePrice360(v float64) *GroupCreate {
-	_c.mutation.SetSoraImagePrice360(v)
-	return _c
-}
-
-// SetNillableSoraImagePrice360 sets the "sora_image_price_360" field if the given value is not nil.
-func (_c *GroupCreate) SetNillableSoraImagePrice360(v *float64) *GroupCreate {
-	if v != nil {
-		_c.SetSoraImagePrice360(*v)
-	}
-	return _c
-}
-
-// SetSoraImagePrice540 sets the "sora_image_price_540" field.
-func (_c *GroupCreate) SetSoraImagePrice540(v float64) *GroupCreate {
-	_c.mutation.SetSoraImagePrice540(v)
-	return _c
-}
-
-// SetNillableSoraImagePrice540 sets the "sora_image_price_540" field if the given value is not nil.
-func (_c *GroupCreate) SetNillableSoraImagePrice540(v *float64) *GroupCreate {
-	if v != nil {
-		_c.SetSoraImagePrice540(*v)
-	}
-	return _c
-}
-
-// SetSoraVideoPricePerRequest sets the "sora_video_price_per_request" field.
-func (_c *GroupCreate) SetSoraVideoPricePerRequest(v float64) *GroupCreate {
-	_c.mutation.SetSoraVideoPricePerRequest(v)
-	return _c
-}
-
-// SetNillableSoraVideoPricePerRequest sets the "sora_video_price_per_request" field if the given value is not nil.
-func (_c *GroupCreate) SetNillableSoraVideoPricePerRequest(v *float64) *GroupCreate {
-	if v != nil {
-		_c.SetSoraVideoPricePerRequest(*v)
-	}
-	return _c
-}
-
-// SetSoraVideoPricePerRequestHd sets the "sora_video_price_per_request_hd" field.
-func (_c *GroupCreate) SetSoraVideoPricePerRequestHd(v float64) *GroupCreate {
-	_c.mutation.SetSoraVideoPricePerRequestHd(v)
-	return _c
-}
-
-// SetNillableSoraVideoPricePerRequestHd sets the "sora_video_price_per_request_hd" field if the given value is not nil.
-func (_c *GroupCreate) SetNillableSoraVideoPricePerRequestHd(v *float64) *GroupCreate {
-	if v != nil {
-		_c.SetSoraVideoPricePerRequestHd(*v)
-	}
-	return _c
-}
-
-// SetSoraStorageQuotaBytes sets the "sora_storage_quota_bytes" field.
-func (_c *GroupCreate) SetSoraStorageQuotaBytes(v int64) *GroupCreate {
-	_c.mutation.SetSoraStorageQuotaBytes(v)
-	return _c
-}
-
-// SetNillableSoraStorageQuotaBytes sets the "sora_storage_quota_bytes" field if the given value is not nil.
-func (_c *GroupCreate) SetNillableSoraStorageQuotaBytes(v *int64) *GroupCreate {
-	if v != nil {
-		_c.SetSoraStorageQuotaBytes(*v)
-	}
-	return _c
-}
-
 // SetClaudeCodeOnly sets the "claude_code_only" field.
 func (_c *GroupCreate) SetClaudeCodeOnly(v bool) *GroupCreate {
 	_c.mutation.SetClaudeCodeOnly(v)
@@ -476,6 +407,20 @@ func (_c *GroupCreate) SetDefaultMappedModel(v string) *GroupCreate {
 func (_c *GroupCreate) SetNillableDefaultMappedModel(v *string) *GroupCreate {
 	if v != nil {
 		_c.SetDefaultMappedModel(*v)
+	}
+	return _c
+}
+
+// SetMessagesDispatchModelConfig sets the "messages_dispatch_model_config" field.
+func (_c *GroupCreate) SetMessagesDispatchModelConfig(v domain.OpenAIMessagesDispatchModelConfig) *GroupCreate {
+	_c.mutation.SetMessagesDispatchModelConfig(v)
+	return _c
+}
+
+// SetNillableMessagesDispatchModelConfig sets the "messages_dispatch_model_config" field if the given value is not nil.
+func (_c *GroupCreate) SetNillableMessagesDispatchModelConfig(v *domain.OpenAIMessagesDispatchModelConfig) *GroupCreate {
+	if v != nil {
+		_c.SetMessagesDispatchModelConfig(*v)
 	}
 	return _c
 }
@@ -645,10 +590,6 @@ func (_c *GroupCreate) defaults() error {
 		v := group.DefaultDefaultValidityDays
 		_c.mutation.SetDefaultValidityDays(v)
 	}
-	if _, ok := _c.mutation.SoraStorageQuotaBytes(); !ok {
-		v := group.DefaultSoraStorageQuotaBytes
-		_c.mutation.SetSoraStorageQuotaBytes(v)
-	}
 	if _, ok := _c.mutation.ClaudeCodeOnly(); !ok {
 		v := group.DefaultClaudeCodeOnly
 		_c.mutation.SetClaudeCodeOnly(v)
@@ -684,6 +625,10 @@ func (_c *GroupCreate) defaults() error {
 	if _, ok := _c.mutation.DefaultMappedModel(); !ok {
 		v := group.DefaultDefaultMappedModel
 		_c.mutation.SetDefaultMappedModel(v)
+	}
+	if _, ok := _c.mutation.MessagesDispatchModelConfig(); !ok {
+		v := group.DefaultMessagesDispatchModelConfig
+		_c.mutation.SetMessagesDispatchModelConfig(v)
 	}
 	return nil
 }
@@ -737,9 +682,6 @@ func (_c *GroupCreate) check() error {
 	if _, ok := _c.mutation.DefaultValidityDays(); !ok {
 		return &ValidationError{Name: "default_validity_days", err: errors.New(`ent: missing required field "Group.default_validity_days"`)}
 	}
-	if _, ok := _c.mutation.SoraStorageQuotaBytes(); !ok {
-		return &ValidationError{Name: "sora_storage_quota_bytes", err: errors.New(`ent: missing required field "Group.sora_storage_quota_bytes"`)}
-	}
 	if _, ok := _c.mutation.ClaudeCodeOnly(); !ok {
 		return &ValidationError{Name: "claude_code_only", err: errors.New(`ent: missing required field "Group.claude_code_only"`)}
 	}
@@ -771,6 +713,9 @@ func (_c *GroupCreate) check() error {
 		if err := group.DefaultMappedModelValidator(v); err != nil {
 			return &ValidationError{Name: "default_mapped_model", err: fmt.Errorf(`ent: validator failed for field "Group.default_mapped_model": %w`, err)}
 		}
+	}
+	if _, ok := _c.mutation.MessagesDispatchModelConfig(); !ok {
+		return &ValidationError{Name: "messages_dispatch_model_config", err: errors.New(`ent: missing required field "Group.messages_dispatch_model_config"`)}
 	}
 	return nil
 }
@@ -867,26 +812,6 @@ func (_c *GroupCreate) createSpec() (*Group, *sqlgraph.CreateSpec) {
 		_spec.SetField(group.FieldImagePrice4k, field.TypeFloat64, value)
 		_node.ImagePrice4k = &value
 	}
-	if value, ok := _c.mutation.SoraImagePrice360(); ok {
-		_spec.SetField(group.FieldSoraImagePrice360, field.TypeFloat64, value)
-		_node.SoraImagePrice360 = &value
-	}
-	if value, ok := _c.mutation.SoraImagePrice540(); ok {
-		_spec.SetField(group.FieldSoraImagePrice540, field.TypeFloat64, value)
-		_node.SoraImagePrice540 = &value
-	}
-	if value, ok := _c.mutation.SoraVideoPricePerRequest(); ok {
-		_spec.SetField(group.FieldSoraVideoPricePerRequest, field.TypeFloat64, value)
-		_node.SoraVideoPricePerRequest = &value
-	}
-	if value, ok := _c.mutation.SoraVideoPricePerRequestHd(); ok {
-		_spec.SetField(group.FieldSoraVideoPricePerRequestHd, field.TypeFloat64, value)
-		_node.SoraVideoPricePerRequestHd = &value
-	}
-	if value, ok := _c.mutation.SoraStorageQuotaBytes(); ok {
-		_spec.SetField(group.FieldSoraStorageQuotaBytes, field.TypeInt64, value)
-		_node.SoraStorageQuotaBytes = value
-	}
 	if value, ok := _c.mutation.ClaudeCodeOnly(); ok {
 		_spec.SetField(group.FieldClaudeCodeOnly, field.TypeBool, value)
 		_node.ClaudeCodeOnly = value
@@ -934,6 +859,10 @@ func (_c *GroupCreate) createSpec() (*Group, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.DefaultMappedModel(); ok {
 		_spec.SetField(group.FieldDefaultMappedModel, field.TypeString, value)
 		_node.DefaultMappedModel = value
+	}
+	if value, ok := _c.mutation.MessagesDispatchModelConfig(); ok {
+		_spec.SetField(group.FieldMessagesDispatchModelConfig, field.TypeJSON, value)
+		_node.MessagesDispatchModelConfig = value
 	}
 	if nodes := _c.mutation.APIKeysIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{
@@ -1379,120 +1308,6 @@ func (u *GroupUpsert) ClearImagePrice4k() *GroupUpsert {
 	return u
 }
 
-// SetSoraImagePrice360 sets the "sora_image_price_360" field.
-func (u *GroupUpsert) SetSoraImagePrice360(v float64) *GroupUpsert {
-	u.Set(group.FieldSoraImagePrice360, v)
-	return u
-}
-
-// UpdateSoraImagePrice360 sets the "sora_image_price_360" field to the value that was provided on create.
-func (u *GroupUpsert) UpdateSoraImagePrice360() *GroupUpsert {
-	u.SetExcluded(group.FieldSoraImagePrice360)
-	return u
-}
-
-// AddSoraImagePrice360 adds v to the "sora_image_price_360" field.
-func (u *GroupUpsert) AddSoraImagePrice360(v float64) *GroupUpsert {
-	u.Add(group.FieldSoraImagePrice360, v)
-	return u
-}
-
-// ClearSoraImagePrice360 clears the value of the "sora_image_price_360" field.
-func (u *GroupUpsert) ClearSoraImagePrice360() *GroupUpsert {
-	u.SetNull(group.FieldSoraImagePrice360)
-	return u
-}
-
-// SetSoraImagePrice540 sets the "sora_image_price_540" field.
-func (u *GroupUpsert) SetSoraImagePrice540(v float64) *GroupUpsert {
-	u.Set(group.FieldSoraImagePrice540, v)
-	return u
-}
-
-// UpdateSoraImagePrice540 sets the "sora_image_price_540" field to the value that was provided on create.
-func (u *GroupUpsert) UpdateSoraImagePrice540() *GroupUpsert {
-	u.SetExcluded(group.FieldSoraImagePrice540)
-	return u
-}
-
-// AddSoraImagePrice540 adds v to the "sora_image_price_540" field.
-func (u *GroupUpsert) AddSoraImagePrice540(v float64) *GroupUpsert {
-	u.Add(group.FieldSoraImagePrice540, v)
-	return u
-}
-
-// ClearSoraImagePrice540 clears the value of the "sora_image_price_540" field.
-func (u *GroupUpsert) ClearSoraImagePrice540() *GroupUpsert {
-	u.SetNull(group.FieldSoraImagePrice540)
-	return u
-}
-
-// SetSoraVideoPricePerRequest sets the "sora_video_price_per_request" field.
-func (u *GroupUpsert) SetSoraVideoPricePerRequest(v float64) *GroupUpsert {
-	u.Set(group.FieldSoraVideoPricePerRequest, v)
-	return u
-}
-
-// UpdateSoraVideoPricePerRequest sets the "sora_video_price_per_request" field to the value that was provided on create.
-func (u *GroupUpsert) UpdateSoraVideoPricePerRequest() *GroupUpsert {
-	u.SetExcluded(group.FieldSoraVideoPricePerRequest)
-	return u
-}
-
-// AddSoraVideoPricePerRequest adds v to the "sora_video_price_per_request" field.
-func (u *GroupUpsert) AddSoraVideoPricePerRequest(v float64) *GroupUpsert {
-	u.Add(group.FieldSoraVideoPricePerRequest, v)
-	return u
-}
-
-// ClearSoraVideoPricePerRequest clears the value of the "sora_video_price_per_request" field.
-func (u *GroupUpsert) ClearSoraVideoPricePerRequest() *GroupUpsert {
-	u.SetNull(group.FieldSoraVideoPricePerRequest)
-	return u
-}
-
-// SetSoraVideoPricePerRequestHd sets the "sora_video_price_per_request_hd" field.
-func (u *GroupUpsert) SetSoraVideoPricePerRequestHd(v float64) *GroupUpsert {
-	u.Set(group.FieldSoraVideoPricePerRequestHd, v)
-	return u
-}
-
-// UpdateSoraVideoPricePerRequestHd sets the "sora_video_price_per_request_hd" field to the value that was provided on create.
-func (u *GroupUpsert) UpdateSoraVideoPricePerRequestHd() *GroupUpsert {
-	u.SetExcluded(group.FieldSoraVideoPricePerRequestHd)
-	return u
-}
-
-// AddSoraVideoPricePerRequestHd adds v to the "sora_video_price_per_request_hd" field.
-func (u *GroupUpsert) AddSoraVideoPricePerRequestHd(v float64) *GroupUpsert {
-	u.Add(group.FieldSoraVideoPricePerRequestHd, v)
-	return u
-}
-
-// ClearSoraVideoPricePerRequestHd clears the value of the "sora_video_price_per_request_hd" field.
-func (u *GroupUpsert) ClearSoraVideoPricePerRequestHd() *GroupUpsert {
-	u.SetNull(group.FieldSoraVideoPricePerRequestHd)
-	return u
-}
-
-// SetSoraStorageQuotaBytes sets the "sora_storage_quota_bytes" field.
-func (u *GroupUpsert) SetSoraStorageQuotaBytes(v int64) *GroupUpsert {
-	u.Set(group.FieldSoraStorageQuotaBytes, v)
-	return u
-}
-
-// UpdateSoraStorageQuotaBytes sets the "sora_storage_quota_bytes" field to the value that was provided on create.
-func (u *GroupUpsert) UpdateSoraStorageQuotaBytes() *GroupUpsert {
-	u.SetExcluded(group.FieldSoraStorageQuotaBytes)
-	return u
-}
-
-// AddSoraStorageQuotaBytes adds v to the "sora_storage_quota_bytes" field.
-func (u *GroupUpsert) AddSoraStorageQuotaBytes(v int64) *GroupUpsert {
-	u.Add(group.FieldSoraStorageQuotaBytes, v)
-	return u
-}
-
 // SetClaudeCodeOnly sets the "claude_code_only" field.
 func (u *GroupUpsert) SetClaudeCodeOnly(v bool) *GroupUpsert {
 	u.Set(group.FieldClaudeCodeOnly, v)
@@ -1670,6 +1485,18 @@ func (u *GroupUpsert) SetDefaultMappedModel(v string) *GroupUpsert {
 // UpdateDefaultMappedModel sets the "default_mapped_model" field to the value that was provided on create.
 func (u *GroupUpsert) UpdateDefaultMappedModel() *GroupUpsert {
 	u.SetExcluded(group.FieldDefaultMappedModel)
+	return u
+}
+
+// SetMessagesDispatchModelConfig sets the "messages_dispatch_model_config" field.
+func (u *GroupUpsert) SetMessagesDispatchModelConfig(v domain.OpenAIMessagesDispatchModelConfig) *GroupUpsert {
+	u.Set(group.FieldMessagesDispatchModelConfig, v)
+	return u
+}
+
+// UpdateMessagesDispatchModelConfig sets the "messages_dispatch_model_config" field to the value that was provided on create.
+func (u *GroupUpsert) UpdateMessagesDispatchModelConfig() *GroupUpsert {
+	u.SetExcluded(group.FieldMessagesDispatchModelConfig)
 	return u
 }
 
@@ -2054,139 +1881,6 @@ func (u *GroupUpsertOne) ClearImagePrice4k() *GroupUpsertOne {
 	})
 }
 
-// SetSoraImagePrice360 sets the "sora_image_price_360" field.
-func (u *GroupUpsertOne) SetSoraImagePrice360(v float64) *GroupUpsertOne {
-	return u.Update(func(s *GroupUpsert) {
-		s.SetSoraImagePrice360(v)
-	})
-}
-
-// AddSoraImagePrice360 adds v to the "sora_image_price_360" field.
-func (u *GroupUpsertOne) AddSoraImagePrice360(v float64) *GroupUpsertOne {
-	return u.Update(func(s *GroupUpsert) {
-		s.AddSoraImagePrice360(v)
-	})
-}
-
-// UpdateSoraImagePrice360 sets the "sora_image_price_360" field to the value that was provided on create.
-func (u *GroupUpsertOne) UpdateSoraImagePrice360() *GroupUpsertOne {
-	return u.Update(func(s *GroupUpsert) {
-		s.UpdateSoraImagePrice360()
-	})
-}
-
-// ClearSoraImagePrice360 clears the value of the "sora_image_price_360" field.
-func (u *GroupUpsertOne) ClearSoraImagePrice360() *GroupUpsertOne {
-	return u.Update(func(s *GroupUpsert) {
-		s.ClearSoraImagePrice360()
-	})
-}
-
-// SetSoraImagePrice540 sets the "sora_image_price_540" field.
-func (u *GroupUpsertOne) SetSoraImagePrice540(v float64) *GroupUpsertOne {
-	return u.Update(func(s *GroupUpsert) {
-		s.SetSoraImagePrice540(v)
-	})
-}
-
-// AddSoraImagePrice540 adds v to the "sora_image_price_540" field.
-func (u *GroupUpsertOne) AddSoraImagePrice540(v float64) *GroupUpsertOne {
-	return u.Update(func(s *GroupUpsert) {
-		s.AddSoraImagePrice540(v)
-	})
-}
-
-// UpdateSoraImagePrice540 sets the "sora_image_price_540" field to the value that was provided on create.
-func (u *GroupUpsertOne) UpdateSoraImagePrice540() *GroupUpsertOne {
-	return u.Update(func(s *GroupUpsert) {
-		s.UpdateSoraImagePrice540()
-	})
-}
-
-// ClearSoraImagePrice540 clears the value of the "sora_image_price_540" field.
-func (u *GroupUpsertOne) ClearSoraImagePrice540() *GroupUpsertOne {
-	return u.Update(func(s *GroupUpsert) {
-		s.ClearSoraImagePrice540()
-	})
-}
-
-// SetSoraVideoPricePerRequest sets the "sora_video_price_per_request" field.
-func (u *GroupUpsertOne) SetSoraVideoPricePerRequest(v float64) *GroupUpsertOne {
-	return u.Update(func(s *GroupUpsert) {
-		s.SetSoraVideoPricePerRequest(v)
-	})
-}
-
-// AddSoraVideoPricePerRequest adds v to the "sora_video_price_per_request" field.
-func (u *GroupUpsertOne) AddSoraVideoPricePerRequest(v float64) *GroupUpsertOne {
-	return u.Update(func(s *GroupUpsert) {
-		s.AddSoraVideoPricePerRequest(v)
-	})
-}
-
-// UpdateSoraVideoPricePerRequest sets the "sora_video_price_per_request" field to the value that was provided on create.
-func (u *GroupUpsertOne) UpdateSoraVideoPricePerRequest() *GroupUpsertOne {
-	return u.Update(func(s *GroupUpsert) {
-		s.UpdateSoraVideoPricePerRequest()
-	})
-}
-
-// ClearSoraVideoPricePerRequest clears the value of the "sora_video_price_per_request" field.
-func (u *GroupUpsertOne) ClearSoraVideoPricePerRequest() *GroupUpsertOne {
-	return u.Update(func(s *GroupUpsert) {
-		s.ClearSoraVideoPricePerRequest()
-	})
-}
-
-// SetSoraVideoPricePerRequestHd sets the "sora_video_price_per_request_hd" field.
-func (u *GroupUpsertOne) SetSoraVideoPricePerRequestHd(v float64) *GroupUpsertOne {
-	return u.Update(func(s *GroupUpsert) {
-		s.SetSoraVideoPricePerRequestHd(v)
-	})
-}
-
-// AddSoraVideoPricePerRequestHd adds v to the "sora_video_price_per_request_hd" field.
-func (u *GroupUpsertOne) AddSoraVideoPricePerRequestHd(v float64) *GroupUpsertOne {
-	return u.Update(func(s *GroupUpsert) {
-		s.AddSoraVideoPricePerRequestHd(v)
-	})
-}
-
-// UpdateSoraVideoPricePerRequestHd sets the "sora_video_price_per_request_hd" field to the value that was provided on create.
-func (u *GroupUpsertOne) UpdateSoraVideoPricePerRequestHd() *GroupUpsertOne {
-	return u.Update(func(s *GroupUpsert) {
-		s.UpdateSoraVideoPricePerRequestHd()
-	})
-}
-
-// ClearSoraVideoPricePerRequestHd clears the value of the "sora_video_price_per_request_hd" field.
-func (u *GroupUpsertOne) ClearSoraVideoPricePerRequestHd() *GroupUpsertOne {
-	return u.Update(func(s *GroupUpsert) {
-		s.ClearSoraVideoPricePerRequestHd()
-	})
-}
-
-// SetSoraStorageQuotaBytes sets the "sora_storage_quota_bytes" field.
-func (u *GroupUpsertOne) SetSoraStorageQuotaBytes(v int64) *GroupUpsertOne {
-	return u.Update(func(s *GroupUpsert) {
-		s.SetSoraStorageQuotaBytes(v)
-	})
-}
-
-// AddSoraStorageQuotaBytes adds v to the "sora_storage_quota_bytes" field.
-func (u *GroupUpsertOne) AddSoraStorageQuotaBytes(v int64) *GroupUpsertOne {
-	return u.Update(func(s *GroupUpsert) {
-		s.AddSoraStorageQuotaBytes(v)
-	})
-}
-
-// UpdateSoraStorageQuotaBytes sets the "sora_storage_quota_bytes" field to the value that was provided on create.
-func (u *GroupUpsertOne) UpdateSoraStorageQuotaBytes() *GroupUpsertOne {
-	return u.Update(func(s *GroupUpsert) {
-		s.UpdateSoraStorageQuotaBytes()
-	})
-}
-
 // SetClaudeCodeOnly sets the "claude_code_only" field.
 func (u *GroupUpsertOne) SetClaudeCodeOnly(v bool) *GroupUpsertOne {
 	return u.Update(func(s *GroupUpsert) {
@@ -2394,6 +2088,20 @@ func (u *GroupUpsertOne) SetDefaultMappedModel(v string) *GroupUpsertOne {
 func (u *GroupUpsertOne) UpdateDefaultMappedModel() *GroupUpsertOne {
 	return u.Update(func(s *GroupUpsert) {
 		s.UpdateDefaultMappedModel()
+	})
+}
+
+// SetMessagesDispatchModelConfig sets the "messages_dispatch_model_config" field.
+func (u *GroupUpsertOne) SetMessagesDispatchModelConfig(v domain.OpenAIMessagesDispatchModelConfig) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetMessagesDispatchModelConfig(v)
+	})
+}
+
+// UpdateMessagesDispatchModelConfig sets the "messages_dispatch_model_config" field to the value that was provided on create.
+func (u *GroupUpsertOne) UpdateMessagesDispatchModelConfig() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateMessagesDispatchModelConfig()
 	})
 }
 
@@ -2944,139 +2652,6 @@ func (u *GroupUpsertBulk) ClearImagePrice4k() *GroupUpsertBulk {
 	})
 }
 
-// SetSoraImagePrice360 sets the "sora_image_price_360" field.
-func (u *GroupUpsertBulk) SetSoraImagePrice360(v float64) *GroupUpsertBulk {
-	return u.Update(func(s *GroupUpsert) {
-		s.SetSoraImagePrice360(v)
-	})
-}
-
-// AddSoraImagePrice360 adds v to the "sora_image_price_360" field.
-func (u *GroupUpsertBulk) AddSoraImagePrice360(v float64) *GroupUpsertBulk {
-	return u.Update(func(s *GroupUpsert) {
-		s.AddSoraImagePrice360(v)
-	})
-}
-
-// UpdateSoraImagePrice360 sets the "sora_image_price_360" field to the value that was provided on create.
-func (u *GroupUpsertBulk) UpdateSoraImagePrice360() *GroupUpsertBulk {
-	return u.Update(func(s *GroupUpsert) {
-		s.UpdateSoraImagePrice360()
-	})
-}
-
-// ClearSoraImagePrice360 clears the value of the "sora_image_price_360" field.
-func (u *GroupUpsertBulk) ClearSoraImagePrice360() *GroupUpsertBulk {
-	return u.Update(func(s *GroupUpsert) {
-		s.ClearSoraImagePrice360()
-	})
-}
-
-// SetSoraImagePrice540 sets the "sora_image_price_540" field.
-func (u *GroupUpsertBulk) SetSoraImagePrice540(v float64) *GroupUpsertBulk {
-	return u.Update(func(s *GroupUpsert) {
-		s.SetSoraImagePrice540(v)
-	})
-}
-
-// AddSoraImagePrice540 adds v to the "sora_image_price_540" field.
-func (u *GroupUpsertBulk) AddSoraImagePrice540(v float64) *GroupUpsertBulk {
-	return u.Update(func(s *GroupUpsert) {
-		s.AddSoraImagePrice540(v)
-	})
-}
-
-// UpdateSoraImagePrice540 sets the "sora_image_price_540" field to the value that was provided on create.
-func (u *GroupUpsertBulk) UpdateSoraImagePrice540() *GroupUpsertBulk {
-	return u.Update(func(s *GroupUpsert) {
-		s.UpdateSoraImagePrice540()
-	})
-}
-
-// ClearSoraImagePrice540 clears the value of the "sora_image_price_540" field.
-func (u *GroupUpsertBulk) ClearSoraImagePrice540() *GroupUpsertBulk {
-	return u.Update(func(s *GroupUpsert) {
-		s.ClearSoraImagePrice540()
-	})
-}
-
-// SetSoraVideoPricePerRequest sets the "sora_video_price_per_request" field.
-func (u *GroupUpsertBulk) SetSoraVideoPricePerRequest(v float64) *GroupUpsertBulk {
-	return u.Update(func(s *GroupUpsert) {
-		s.SetSoraVideoPricePerRequest(v)
-	})
-}
-
-// AddSoraVideoPricePerRequest adds v to the "sora_video_price_per_request" field.
-func (u *GroupUpsertBulk) AddSoraVideoPricePerRequest(v float64) *GroupUpsertBulk {
-	return u.Update(func(s *GroupUpsert) {
-		s.AddSoraVideoPricePerRequest(v)
-	})
-}
-
-// UpdateSoraVideoPricePerRequest sets the "sora_video_price_per_request" field to the value that was provided on create.
-func (u *GroupUpsertBulk) UpdateSoraVideoPricePerRequest() *GroupUpsertBulk {
-	return u.Update(func(s *GroupUpsert) {
-		s.UpdateSoraVideoPricePerRequest()
-	})
-}
-
-// ClearSoraVideoPricePerRequest clears the value of the "sora_video_price_per_request" field.
-func (u *GroupUpsertBulk) ClearSoraVideoPricePerRequest() *GroupUpsertBulk {
-	return u.Update(func(s *GroupUpsert) {
-		s.ClearSoraVideoPricePerRequest()
-	})
-}
-
-// SetSoraVideoPricePerRequestHd sets the "sora_video_price_per_request_hd" field.
-func (u *GroupUpsertBulk) SetSoraVideoPricePerRequestHd(v float64) *GroupUpsertBulk {
-	return u.Update(func(s *GroupUpsert) {
-		s.SetSoraVideoPricePerRequestHd(v)
-	})
-}
-
-// AddSoraVideoPricePerRequestHd adds v to the "sora_video_price_per_request_hd" field.
-func (u *GroupUpsertBulk) AddSoraVideoPricePerRequestHd(v float64) *GroupUpsertBulk {
-	return u.Update(func(s *GroupUpsert) {
-		s.AddSoraVideoPricePerRequestHd(v)
-	})
-}
-
-// UpdateSoraVideoPricePerRequestHd sets the "sora_video_price_per_request_hd" field to the value that was provided on create.
-func (u *GroupUpsertBulk) UpdateSoraVideoPricePerRequestHd() *GroupUpsertBulk {
-	return u.Update(func(s *GroupUpsert) {
-		s.UpdateSoraVideoPricePerRequestHd()
-	})
-}
-
-// ClearSoraVideoPricePerRequestHd clears the value of the "sora_video_price_per_request_hd" field.
-func (u *GroupUpsertBulk) ClearSoraVideoPricePerRequestHd() *GroupUpsertBulk {
-	return u.Update(func(s *GroupUpsert) {
-		s.ClearSoraVideoPricePerRequestHd()
-	})
-}
-
-// SetSoraStorageQuotaBytes sets the "sora_storage_quota_bytes" field.
-func (u *GroupUpsertBulk) SetSoraStorageQuotaBytes(v int64) *GroupUpsertBulk {
-	return u.Update(func(s *GroupUpsert) {
-		s.SetSoraStorageQuotaBytes(v)
-	})
-}
-
-// AddSoraStorageQuotaBytes adds v to the "sora_storage_quota_bytes" field.
-func (u *GroupUpsertBulk) AddSoraStorageQuotaBytes(v int64) *GroupUpsertBulk {
-	return u.Update(func(s *GroupUpsert) {
-		s.AddSoraStorageQuotaBytes(v)
-	})
-}
-
-// UpdateSoraStorageQuotaBytes sets the "sora_storage_quota_bytes" field to the value that was provided on create.
-func (u *GroupUpsertBulk) UpdateSoraStorageQuotaBytes() *GroupUpsertBulk {
-	return u.Update(func(s *GroupUpsert) {
-		s.UpdateSoraStorageQuotaBytes()
-	})
-}
-
 // SetClaudeCodeOnly sets the "claude_code_only" field.
 func (u *GroupUpsertBulk) SetClaudeCodeOnly(v bool) *GroupUpsertBulk {
 	return u.Update(func(s *GroupUpsert) {
@@ -3284,6 +2859,20 @@ func (u *GroupUpsertBulk) SetDefaultMappedModel(v string) *GroupUpsertBulk {
 func (u *GroupUpsertBulk) UpdateDefaultMappedModel() *GroupUpsertBulk {
 	return u.Update(func(s *GroupUpsert) {
 		s.UpdateDefaultMappedModel()
+	})
+}
+
+// SetMessagesDispatchModelConfig sets the "messages_dispatch_model_config" field.
+func (u *GroupUpsertBulk) SetMessagesDispatchModelConfig(v domain.OpenAIMessagesDispatchModelConfig) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetMessagesDispatchModelConfig(v)
+	})
+}
+
+// UpdateMessagesDispatchModelConfig sets the "messages_dispatch_model_config" field to the value that was provided on create.
+func (u *GroupUpsertBulk) UpdateMessagesDispatchModelConfig() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateMessagesDispatchModelConfig()
 	})
 }
 

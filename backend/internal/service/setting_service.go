@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -16,14 +17,13 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
+	"github.com/imroc/req/v3"
 	"golang.org/x/sync/singleflight"
 )
 
 var (
 	ErrRegistrationDisabled   = infraerrors.Forbidden("REGISTRATION_DISABLED", "registration is currently disabled")
 	ErrSettingNotFound        = infraerrors.NotFound("SETTING_NOT_FOUND", "setting not found")
-	ErrSoraS3ProfileNotFound  = infraerrors.NotFound("SORA_S3_PROFILE_NOT_FOUND", "sora s3 profile not found")
-	ErrSoraS3ProfileExists    = infraerrors.Conflict("SORA_S3_PROFILE_EXISTS", "sora s3 profile already exists")
 	ErrDefaultSubGroupInvalid = infraerrors.BadRequest(
 		"DEFAULT_SUBSCRIPTION_GROUP_INVALID",
 		"default subscription group must exist and be subscription type",
@@ -83,6 +83,7 @@ const backendModeDBTimeout = 5 * time.Second
 type cachedGatewayForwardingSettings struct {
 	fingerprintUnification bool
 	metadataPassthrough    bool
+	cchSigning             bool
 	expiresAt              int64 // unix nano
 }
 
@@ -104,7 +105,6 @@ type SettingService struct {
 	defaultSubGroupReader DefaultSubscriptionGroupReader
 	cfg                   *config.Config
 	onUpdate              func() // Callback when settings are updated (for cache invalidation)
-	onS3Update            func() // Callback when Sora S3 settings are updated
 	version               string // Application version
 }
 
@@ -162,11 +162,15 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 		SettingKeyHideCcsImportButton,
 		SettingKeyPurchaseSubscriptionEnabled,
 		SettingKeyPurchaseSubscriptionURL,
-		SettingKeySoraClientEnabled,
+		SettingKeyTableDefaultPageSize,
+		SettingKeyTablePageSizeOptions,
 		SettingKeyCustomMenuItems,
 		SettingKeyCustomEndpoints,
 		SettingKeyLinuxDoConnectEnabled,
 		SettingKeyBackendModeEnabled,
+		SettingKeyOIDCConnectEnabled,
+		SettingKeyOIDCConnectProviderName,
+		SettingPaymentEnabled,
 	}
 
 	settings, err := s.settingRepo.GetMultiple(ctx, keys)
@@ -180,12 +184,29 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 	} else {
 		linuxDoEnabled = s.cfg != nil && s.cfg.LinuxDo.Enabled
 	}
+	oidcEnabled := false
+	if raw, ok := settings[SettingKeyOIDCConnectEnabled]; ok {
+		oidcEnabled = raw == "true"
+	} else {
+		oidcEnabled = s.cfg != nil && s.cfg.OIDC.Enabled
+	}
+	oidcProviderName := strings.TrimSpace(settings[SettingKeyOIDCConnectProviderName])
+	if oidcProviderName == "" && s.cfg != nil {
+		oidcProviderName = strings.TrimSpace(s.cfg.OIDC.ProviderName)
+	}
+	if oidcProviderName == "" {
+		oidcProviderName = "OIDC"
+	}
 
 	// Password reset requires email verification to be enabled
 	emailVerifyEnabled := settings[SettingKeyEmailVerifyEnabled] == "true"
 	passwordResetEnabled := emailVerifyEnabled && settings[SettingKeyPasswordResetEnabled] == "true"
 	registrationEmailSuffixWhitelist := ParseRegistrationEmailSuffixWhitelist(
 		settings[SettingKeyRegistrationEmailSuffixWhitelist],
+	)
+	tableDefaultPageSize, tablePageSizeOptions := parseTablePreferences(
+		settings[SettingKeyTableDefaultPageSize],
+		settings[SettingKeyTablePageSizeOptions],
 	)
 
 	return &PublicSettings{
@@ -208,11 +229,15 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 		HideCcsImportButton:              settings[SettingKeyHideCcsImportButton] == "true",
 		PurchaseSubscriptionEnabled:      settings[SettingKeyPurchaseSubscriptionEnabled] == "true",
 		PurchaseSubscriptionURL:          strings.TrimSpace(settings[SettingKeyPurchaseSubscriptionURL]),
-		SoraClientEnabled:                settings[SettingKeySoraClientEnabled] == "true",
+		TableDefaultPageSize:             tableDefaultPageSize,
+		TablePageSizeOptions:             tablePageSizeOptions,
 		CustomMenuItems:                  settings[SettingKeyCustomMenuItems],
 		CustomEndpoints:                  settings[SettingKeyCustomEndpoints],
 		LinuxDoOAuthEnabled:              linuxDoEnabled,
 		BackendModeEnabled:               settings[SettingKeyBackendModeEnabled] == "true",
+		OIDCOAuthEnabled:                 oidcEnabled,
+		OIDCOAuthProviderName:            oidcProviderName,
+		PaymentEnabled:                   settings[SettingPaymentEnabled] == "true",
 	}, nil
 }
 
@@ -220,11 +245,6 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 // This is used for cache invalidation (e.g., HTML cache in frontend server)
 func (s *SettingService) SetOnUpdateCallback(callback func()) {
 	s.onUpdate = callback
-}
-
-// SetOnS3UpdateCallback 设置 Sora S3 配置变更时的回调函数（用于刷新 S3 客户端缓存）。
-func (s *SettingService) SetOnS3UpdateCallback(callback func()) {
-	s.onS3Update = callback
 }
 
 // SetVersion sets the application version for injection into public settings
@@ -261,11 +281,15 @@ func (s *SettingService) GetPublicSettingsForInjection(ctx context.Context) (any
 		HideCcsImportButton              bool            `json:"hide_ccs_import_button"`
 		PurchaseSubscriptionEnabled      bool            `json:"purchase_subscription_enabled"`
 		PurchaseSubscriptionURL          string          `json:"purchase_subscription_url,omitempty"`
-		SoraClientEnabled                bool            `json:"sora_client_enabled"`
+		TableDefaultPageSize             int             `json:"table_default_page_size"`
+		TablePageSizeOptions             []int           `json:"table_page_size_options"`
 		CustomMenuItems                  json.RawMessage `json:"custom_menu_items"`
 		CustomEndpoints                  json.RawMessage `json:"custom_endpoints"`
 		LinuxDoOAuthEnabled              bool            `json:"linuxdo_oauth_enabled"`
 		BackendModeEnabled               bool            `json:"backend_mode_enabled"`
+		OIDCOAuthEnabled                 bool            `json:"oidc_oauth_enabled"`
+		OIDCOAuthProviderName            string          `json:"oidc_oauth_provider_name"`
+		PaymentEnabled                   bool            `json:"payment_enabled"`
 		Version                          string          `json:"version,omitempty"`
 	}{
 		RegistrationEnabled:              settings.RegistrationEnabled,
@@ -287,11 +311,15 @@ func (s *SettingService) GetPublicSettingsForInjection(ctx context.Context) (any
 		HideCcsImportButton:              settings.HideCcsImportButton,
 		PurchaseSubscriptionEnabled:      settings.PurchaseSubscriptionEnabled,
 		PurchaseSubscriptionURL:          settings.PurchaseSubscriptionURL,
-		SoraClientEnabled:                settings.SoraClientEnabled,
+		TableDefaultPageSize:             settings.TableDefaultPageSize,
+		TablePageSizeOptions:             settings.TablePageSizeOptions,
 		CustomMenuItems:                  filterUserVisibleMenuItems(settings.CustomMenuItems),
 		CustomEndpoints:                  safeRawJSONArray(settings.CustomEndpoints),
 		LinuxDoOAuthEnabled:              settings.LinuxDoOAuthEnabled,
 		BackendModeEnabled:               settings.BackendModeEnabled,
+		OIDCOAuthEnabled:                 settings.OIDCOAuthEnabled,
+		OIDCOAuthProviderName:            settings.OIDCOAuthProviderName,
+		PaymentEnabled:                   settings.PaymentEnabled,
 		Version:                          s.version,
 	}, nil
 }
@@ -344,8 +372,8 @@ func safeRawJSONArray(raw string) json.RawMessage {
 	return json.RawMessage("[]")
 }
 
-// GetFrameSrcOrigins returns deduplicated http(s) origins from purchase_subscription_url
-// and all custom_menu_items URLs. Used by the router layer for CSP frame-src injection.
+// GetFrameSrcOrigins returns deduplicated http(s) origins from home_content URL,
+// purchase_subscription_url, and all custom_menu_items URLs. Used by the router layer for CSP frame-src injection.
 func (s *SettingService) GetFrameSrcOrigins(ctx context.Context) ([]string, error) {
 	settings, err := s.GetPublicSettings(ctx)
 	if err != nil {
@@ -363,6 +391,9 @@ func (s *SettingService) GetFrameSrcOrigins(ctx context.Context) ([]string, erro
 			}
 		}
 	}
+
+	// home content URL (when home_content is set to a URL for iframe embedding)
+	addOrigin(settings.HomeContent)
 
 	// purchase subscription URL
 	if settings.PurchaseSubscriptionEnabled {
@@ -471,6 +502,32 @@ func (s *SettingService) UpdateSettings(ctx context.Context, settings *SystemSet
 		updates[SettingKeyLinuxDoConnectClientSecret] = settings.LinuxDoConnectClientSecret
 	}
 
+	// Generic OIDC OAuth 登录
+	updates[SettingKeyOIDCConnectEnabled] = strconv.FormatBool(settings.OIDCConnectEnabled)
+	updates[SettingKeyOIDCConnectProviderName] = settings.OIDCConnectProviderName
+	updates[SettingKeyOIDCConnectClientID] = settings.OIDCConnectClientID
+	updates[SettingKeyOIDCConnectIssuerURL] = settings.OIDCConnectIssuerURL
+	updates[SettingKeyOIDCConnectDiscoveryURL] = settings.OIDCConnectDiscoveryURL
+	updates[SettingKeyOIDCConnectAuthorizeURL] = settings.OIDCConnectAuthorizeURL
+	updates[SettingKeyOIDCConnectTokenURL] = settings.OIDCConnectTokenURL
+	updates[SettingKeyOIDCConnectUserInfoURL] = settings.OIDCConnectUserInfoURL
+	updates[SettingKeyOIDCConnectJWKSURL] = settings.OIDCConnectJWKSURL
+	updates[SettingKeyOIDCConnectScopes] = settings.OIDCConnectScopes
+	updates[SettingKeyOIDCConnectRedirectURL] = settings.OIDCConnectRedirectURL
+	updates[SettingKeyOIDCConnectFrontendRedirectURL] = settings.OIDCConnectFrontendRedirectURL
+	updates[SettingKeyOIDCConnectTokenAuthMethod] = settings.OIDCConnectTokenAuthMethod
+	updates[SettingKeyOIDCConnectUsePKCE] = strconv.FormatBool(settings.OIDCConnectUsePKCE)
+	updates[SettingKeyOIDCConnectValidateIDToken] = strconv.FormatBool(settings.OIDCConnectValidateIDToken)
+	updates[SettingKeyOIDCConnectAllowedSigningAlgs] = settings.OIDCConnectAllowedSigningAlgs
+	updates[SettingKeyOIDCConnectClockSkewSeconds] = strconv.Itoa(settings.OIDCConnectClockSkewSeconds)
+	updates[SettingKeyOIDCConnectRequireEmailVerified] = strconv.FormatBool(settings.OIDCConnectRequireEmailVerified)
+	updates[SettingKeyOIDCConnectUserInfoEmailPath] = settings.OIDCConnectUserInfoEmailPath
+	updates[SettingKeyOIDCConnectUserInfoIDPath] = settings.OIDCConnectUserInfoIDPath
+	updates[SettingKeyOIDCConnectUserInfoUsernamePath] = settings.OIDCConnectUserInfoUsernamePath
+	if settings.OIDCConnectClientSecret != "" {
+		updates[SettingKeyOIDCConnectClientSecret] = settings.OIDCConnectClientSecret
+	}
+
 	// OEM设置
 	updates[SettingKeySiteName] = settings.SiteName
 	updates[SettingKeySiteLogo] = settings.SiteLogo
@@ -482,7 +539,16 @@ func (s *SettingService) UpdateSettings(ctx context.Context, settings *SystemSet
 	updates[SettingKeyHideCcsImportButton] = strconv.FormatBool(settings.HideCcsImportButton)
 	updates[SettingKeyPurchaseSubscriptionEnabled] = strconv.FormatBool(settings.PurchaseSubscriptionEnabled)
 	updates[SettingKeyPurchaseSubscriptionURL] = strings.TrimSpace(settings.PurchaseSubscriptionURL)
-	updates[SettingKeySoraClientEnabled] = strconv.FormatBool(settings.SoraClientEnabled)
+	tableDefaultPageSize, tablePageSizeOptions := normalizeTablePreferences(
+		settings.TableDefaultPageSize,
+		settings.TablePageSizeOptions,
+	)
+	updates[SettingKeyTableDefaultPageSize] = strconv.Itoa(tableDefaultPageSize)
+	tablePageSizeOptionsJSON, err := json.Marshal(tablePageSizeOptions)
+	if err != nil {
+		return fmt.Errorf("marshal table page size options: %w", err)
+	}
+	updates[SettingKeyTablePageSizeOptions] = string(tablePageSizeOptionsJSON)
 	updates[SettingKeyCustomMenuItems] = settings.CustomMenuItems
 	updates[SettingKeyCustomEndpoints] = settings.CustomEndpoints
 
@@ -527,6 +593,7 @@ func (s *SettingService) UpdateSettings(ctx context.Context, settings *SystemSet
 	// Gateway forwarding behavior
 	updates[SettingKeyEnableFingerprintUnification] = strconv.FormatBool(settings.EnableFingerprintUnification)
 	updates[SettingKeyEnableMetadataPassthrough] = strconv.FormatBool(settings.EnableMetadataPassthrough)
+	updates[SettingKeyEnableCCHSigning] = strconv.FormatBool(settings.EnableCCHSigning)
 
 	err = s.settingRepo.SetMultiple(ctx, updates)
 	if err == nil {
@@ -546,6 +613,7 @@ func (s *SettingService) UpdateSettings(ctx context.Context, settings *SystemSet
 		gatewayForwardingCache.Store(&cachedGatewayForwardingSettings{
 			fingerprintUnification: settings.EnableFingerprintUnification,
 			metadataPassthrough:    settings.EnableMetadataPassthrough,
+			cchSigning:             settings.EnableCCHSigning,
 			expiresAt:              time.Now().Add(gatewayForwardingCacheTTL).UnixNano(),
 		})
 		if s.onUpdate != nil {
@@ -652,20 +720,20 @@ func (s *SettingService) IsBackendModeEnabled(ctx context.Context) bool {
 
 // GetGatewayForwardingSettings returns cached gateway forwarding settings.
 // Uses in-process atomic.Value cache with 60s TTL, zero-lock hot path.
-// Returns (fingerprintUnification, metadataPassthrough).
-func (s *SettingService) GetGatewayForwardingSettings(ctx context.Context) (fingerprintUnification, metadataPassthrough bool) {
+// Returns (fingerprintUnification, metadataPassthrough, cchSigning).
+func (s *SettingService) GetGatewayForwardingSettings(ctx context.Context) (fingerprintUnification, metadataPassthrough, cchSigning bool) {
 	if cached, ok := gatewayForwardingCache.Load().(*cachedGatewayForwardingSettings); ok && cached != nil {
 		if time.Now().UnixNano() < cached.expiresAt {
-			return cached.fingerprintUnification, cached.metadataPassthrough
+			return cached.fingerprintUnification, cached.metadataPassthrough, cached.cchSigning
 		}
 	}
 	type gwfResult struct {
-		fp, mp bool
+		fp, mp, cch bool
 	}
 	val, _, _ := gatewayForwardingSF.Do("gateway_forwarding", func() (any, error) {
 		if cached, ok := gatewayForwardingCache.Load().(*cachedGatewayForwardingSettings); ok && cached != nil {
 			if time.Now().UnixNano() < cached.expiresAt {
-				return gwfResult{cached.fingerprintUnification, cached.metadataPassthrough}, nil
+				return gwfResult{cached.fingerprintUnification, cached.metadataPassthrough, cached.cchSigning}, nil
 			}
 		}
 		dbCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), gatewayForwardingDBTimeout)
@@ -673,32 +741,36 @@ func (s *SettingService) GetGatewayForwardingSettings(ctx context.Context) (fing
 		values, err := s.settingRepo.GetMultiple(dbCtx, []string{
 			SettingKeyEnableFingerprintUnification,
 			SettingKeyEnableMetadataPassthrough,
+			SettingKeyEnableCCHSigning,
 		})
 		if err != nil {
 			slog.Warn("failed to get gateway forwarding settings", "error", err)
 			gatewayForwardingCache.Store(&cachedGatewayForwardingSettings{
 				fingerprintUnification: true,
 				metadataPassthrough:    false,
+				cchSigning:             false,
 				expiresAt:              time.Now().Add(gatewayForwardingErrorTTL).UnixNano(),
 			})
-			return gwfResult{true, false}, nil
+			return gwfResult{true, false, false}, nil
 		}
 		fp := true
 		if v, ok := values[SettingKeyEnableFingerprintUnification]; ok && v != "" {
 			fp = v == "true"
 		}
 		mp := values[SettingKeyEnableMetadataPassthrough] == "true"
+		cch := values[SettingKeyEnableCCHSigning] == "true"
 		gatewayForwardingCache.Store(&cachedGatewayForwardingSettings{
 			fingerprintUnification: fp,
 			metadataPassthrough:    mp,
+			cchSigning:             cch,
 			expiresAt:              time.Now().Add(gatewayForwardingCacheTTL).UnixNano(),
 		})
-		return gwfResult{fp, mp}, nil
+		return gwfResult{fp, mp, cch}, nil
 	})
 	if r, ok := val.(gwfResult); ok {
-		return r.fp, r.mp
+		return r.fp, r.mp, r.cch
 	}
-	return true, false // fail-open defaults
+	return true, false, false // fail-open defaults
 }
 
 // IsEmailVerifyEnabled 检查是否开启邮件验证
@@ -830,9 +902,12 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		SettingKeySiteLogo:                         "",
 		SettingKeyPurchaseSubscriptionEnabled:      "false",
 		SettingKeyPurchaseSubscriptionURL:          "",
-		SettingKeySoraClientEnabled:                "false",
+		SettingKeyTableDefaultPageSize:             "20",
+		SettingKeyTablePageSizeOptions:             "[10,20,50,100]",
 		SettingKeyCustomMenuItems:                  "[]",
 		SettingKeyCustomEndpoints:                  "[]",
+		SettingKeyOIDCConnectEnabled:               "false",
+		SettingKeyOIDCConnectProviderName:          "OIDC",
 		SettingKeyDefaultConcurrency:               strconv.Itoa(s.cfg.Default.UserConcurrency),
 		SettingKeyDefaultBalance:                   strconv.FormatFloat(s.cfg.Default.UserBalance, 'f', 8, 64),
 		SettingKeyDefaultSubscriptions:             "[]",
@@ -896,11 +971,14 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 		HideCcsImportButton:              settings[SettingKeyHideCcsImportButton] == "true",
 		PurchaseSubscriptionEnabled:      settings[SettingKeyPurchaseSubscriptionEnabled] == "true",
 		PurchaseSubscriptionURL:          strings.TrimSpace(settings[SettingKeyPurchaseSubscriptionURL]),
-		SoraClientEnabled:                settings[SettingKeySoraClientEnabled] == "true",
 		CustomMenuItems:                  settings[SettingKeyCustomMenuItems],
 		CustomEndpoints:                  settings[SettingKeyCustomEndpoints],
 		BackendModeEnabled:               settings[SettingKeyBackendModeEnabled] == "true",
 	}
+	result.TableDefaultPageSize, result.TablePageSizeOptions = parseTablePreferences(
+		settings[SettingKeyTableDefaultPageSize],
+		settings[SettingKeyTablePageSizeOptions],
+	)
 
 	// 解析整数类型
 	if port, err := strconv.Atoi(settings[SettingKeySMTPPort]); err == nil {
@@ -959,6 +1037,138 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 	}
 	result.LinuxDoConnectClientSecretConfigured = result.LinuxDoConnectClientSecret != ""
 
+	// Generic OIDC 设置：
+	// - 兼容 config.yaml/env
+	// - 支持后台系统设置覆盖并持久化（存储于 DB）
+	oidcBase := config.OIDCConnectConfig{}
+	if s.cfg != nil {
+		oidcBase = s.cfg.OIDC
+	}
+
+	if raw, ok := settings[SettingKeyOIDCConnectEnabled]; ok {
+		result.OIDCConnectEnabled = raw == "true"
+	} else {
+		result.OIDCConnectEnabled = oidcBase.Enabled
+	}
+
+	if v, ok := settings[SettingKeyOIDCConnectProviderName]; ok && strings.TrimSpace(v) != "" {
+		result.OIDCConnectProviderName = strings.TrimSpace(v)
+	} else {
+		result.OIDCConnectProviderName = strings.TrimSpace(oidcBase.ProviderName)
+	}
+	if result.OIDCConnectProviderName == "" {
+		result.OIDCConnectProviderName = "OIDC"
+	}
+
+	if v, ok := settings[SettingKeyOIDCConnectClientID]; ok && strings.TrimSpace(v) != "" {
+		result.OIDCConnectClientID = strings.TrimSpace(v)
+	} else {
+		result.OIDCConnectClientID = strings.TrimSpace(oidcBase.ClientID)
+	}
+	if v, ok := settings[SettingKeyOIDCConnectIssuerURL]; ok && strings.TrimSpace(v) != "" {
+		result.OIDCConnectIssuerURL = strings.TrimSpace(v)
+	} else {
+		result.OIDCConnectIssuerURL = strings.TrimSpace(oidcBase.IssuerURL)
+	}
+	if v, ok := settings[SettingKeyOIDCConnectDiscoveryURL]; ok && strings.TrimSpace(v) != "" {
+		result.OIDCConnectDiscoveryURL = strings.TrimSpace(v)
+	} else {
+		result.OIDCConnectDiscoveryURL = strings.TrimSpace(oidcBase.DiscoveryURL)
+	}
+	if v, ok := settings[SettingKeyOIDCConnectAuthorizeURL]; ok && strings.TrimSpace(v) != "" {
+		result.OIDCConnectAuthorizeURL = strings.TrimSpace(v)
+	} else {
+		result.OIDCConnectAuthorizeURL = strings.TrimSpace(oidcBase.AuthorizeURL)
+	}
+	if v, ok := settings[SettingKeyOIDCConnectTokenURL]; ok && strings.TrimSpace(v) != "" {
+		result.OIDCConnectTokenURL = strings.TrimSpace(v)
+	} else {
+		result.OIDCConnectTokenURL = strings.TrimSpace(oidcBase.TokenURL)
+	}
+	if v, ok := settings[SettingKeyOIDCConnectUserInfoURL]; ok && strings.TrimSpace(v) != "" {
+		result.OIDCConnectUserInfoURL = strings.TrimSpace(v)
+	} else {
+		result.OIDCConnectUserInfoURL = strings.TrimSpace(oidcBase.UserInfoURL)
+	}
+	if v, ok := settings[SettingKeyOIDCConnectJWKSURL]; ok && strings.TrimSpace(v) != "" {
+		result.OIDCConnectJWKSURL = strings.TrimSpace(v)
+	} else {
+		result.OIDCConnectJWKSURL = strings.TrimSpace(oidcBase.JWKSURL)
+	}
+	if v, ok := settings[SettingKeyOIDCConnectScopes]; ok && strings.TrimSpace(v) != "" {
+		result.OIDCConnectScopes = strings.TrimSpace(v)
+	} else {
+		result.OIDCConnectScopes = strings.TrimSpace(oidcBase.Scopes)
+	}
+	if v, ok := settings[SettingKeyOIDCConnectRedirectURL]; ok && strings.TrimSpace(v) != "" {
+		result.OIDCConnectRedirectURL = strings.TrimSpace(v)
+	} else {
+		result.OIDCConnectRedirectURL = strings.TrimSpace(oidcBase.RedirectURL)
+	}
+	if v, ok := settings[SettingKeyOIDCConnectFrontendRedirectURL]; ok && strings.TrimSpace(v) != "" {
+		result.OIDCConnectFrontendRedirectURL = strings.TrimSpace(v)
+	} else {
+		result.OIDCConnectFrontendRedirectURL = strings.TrimSpace(oidcBase.FrontendRedirectURL)
+	}
+	if v, ok := settings[SettingKeyOIDCConnectTokenAuthMethod]; ok && strings.TrimSpace(v) != "" {
+		result.OIDCConnectTokenAuthMethod = strings.ToLower(strings.TrimSpace(v))
+	} else {
+		result.OIDCConnectTokenAuthMethod = strings.ToLower(strings.TrimSpace(oidcBase.TokenAuthMethod))
+	}
+	if raw, ok := settings[SettingKeyOIDCConnectUsePKCE]; ok {
+		result.OIDCConnectUsePKCE = raw == "true"
+	} else {
+		result.OIDCConnectUsePKCE = oidcBase.UsePKCE
+	}
+	if raw, ok := settings[SettingKeyOIDCConnectValidateIDToken]; ok {
+		result.OIDCConnectValidateIDToken = raw == "true"
+	} else {
+		result.OIDCConnectValidateIDToken = oidcBase.ValidateIDToken
+	}
+	if v, ok := settings[SettingKeyOIDCConnectAllowedSigningAlgs]; ok && strings.TrimSpace(v) != "" {
+		result.OIDCConnectAllowedSigningAlgs = strings.TrimSpace(v)
+	} else {
+		result.OIDCConnectAllowedSigningAlgs = strings.TrimSpace(oidcBase.AllowedSigningAlgs)
+	}
+	clockSkewSet := false
+	if raw, ok := settings[SettingKeyOIDCConnectClockSkewSeconds]; ok && strings.TrimSpace(raw) != "" {
+		if parsed, err := strconv.Atoi(strings.TrimSpace(raw)); err == nil {
+			result.OIDCConnectClockSkewSeconds = parsed
+			clockSkewSet = true
+		}
+	}
+	if !clockSkewSet {
+		result.OIDCConnectClockSkewSeconds = oidcBase.ClockSkewSeconds
+	}
+	if !clockSkewSet && result.OIDCConnectClockSkewSeconds == 0 {
+		result.OIDCConnectClockSkewSeconds = 120
+	}
+	if raw, ok := settings[SettingKeyOIDCConnectRequireEmailVerified]; ok {
+		result.OIDCConnectRequireEmailVerified = raw == "true"
+	} else {
+		result.OIDCConnectRequireEmailVerified = oidcBase.RequireEmailVerified
+	}
+	if v, ok := settings[SettingKeyOIDCConnectUserInfoEmailPath]; ok {
+		result.OIDCConnectUserInfoEmailPath = strings.TrimSpace(v)
+	} else {
+		result.OIDCConnectUserInfoEmailPath = strings.TrimSpace(oidcBase.UserInfoEmailPath)
+	}
+	if v, ok := settings[SettingKeyOIDCConnectUserInfoIDPath]; ok {
+		result.OIDCConnectUserInfoIDPath = strings.TrimSpace(v)
+	} else {
+		result.OIDCConnectUserInfoIDPath = strings.TrimSpace(oidcBase.UserInfoIDPath)
+	}
+	if v, ok := settings[SettingKeyOIDCConnectUserInfoUsernamePath]; ok {
+		result.OIDCConnectUserInfoUsernamePath = strings.TrimSpace(v)
+	} else {
+		result.OIDCConnectUserInfoUsernamePath = strings.TrimSpace(oidcBase.UserInfoUsernamePath)
+	}
+	result.OIDCConnectClientSecret = strings.TrimSpace(settings[SettingKeyOIDCConnectClientSecret])
+	if result.OIDCConnectClientSecret == "" {
+		result.OIDCConnectClientSecret = strings.TrimSpace(oidcBase.ClientSecret)
+	}
+	result.OIDCConnectClientSecretConfigured = result.OIDCConnectClientSecret != ""
+
 	// Model fallback settings
 	result.EnableModelFallback = settings[SettingKeyEnableModelFallback] == "true"
 	result.FallbackModelAnthropic = s.getStringOrDefault(settings, SettingKeyFallbackModelAnthropic, "claude-3-5-sonnet-20241022")
@@ -998,13 +1208,14 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 	// 分组隔离
 	result.AllowUngroupedKeyScheduling = settings[SettingKeyAllowUngroupedKeyScheduling] == "true"
 
-	// Gateway forwarding behavior (defaults: fingerprint=true, metadata_passthrough=false)
+	// Gateway forwarding behavior (defaults: fingerprint=true, metadata_passthrough=false, cch_signing=false)
 	if v, ok := settings[SettingKeyEnableFingerprintUnification]; ok && v != "" {
 		result.EnableFingerprintUnification = v == "true"
 	} else {
 		result.EnableFingerprintUnification = true // default: enabled (current behavior)
 	}
 	result.EnableMetadataPassthrough = settings[SettingKeyEnableMetadataPassthrough] == "true"
+	result.EnableCCHSigning = settings[SettingKeyEnableCCHSigning] == "true"
 
 	return result
 }
@@ -1041,6 +1252,50 @@ func parseDefaultSubscriptions(raw string) []DefaultSubscriptionSetting {
 	}
 
 	return normalized
+}
+
+func parseTablePreferences(defaultPageSizeRaw, optionsRaw string) (int, []int) {
+	defaultPageSize := 20
+	if v, err := strconv.Atoi(strings.TrimSpace(defaultPageSizeRaw)); err == nil {
+		defaultPageSize = v
+	}
+
+	var options []int
+	if strings.TrimSpace(optionsRaw) != "" {
+		_ = json.Unmarshal([]byte(optionsRaw), &options)
+	}
+
+	return normalizeTablePreferences(defaultPageSize, options)
+}
+
+func normalizeTablePreferences(defaultPageSize int, options []int) (int, []int) {
+	const minPageSize = 5
+	const maxPageSize = 1000
+	const fallbackPageSize = 20
+
+	seen := make(map[int]struct{}, len(options))
+	normalizedOptions := make([]int, 0, len(options))
+	for _, option := range options {
+		if option < minPageSize || option > maxPageSize {
+			continue
+		}
+		if _, ok := seen[option]; ok {
+			continue
+		}
+		seen[option] = struct{}{}
+		normalizedOptions = append(normalizedOptions, option)
+	}
+	sort.Ints(normalizedOptions)
+
+	if defaultPageSize < minPageSize || defaultPageSize > maxPageSize {
+		defaultPageSize = fallbackPageSize
+	}
+
+	if len(normalizedOptions) == 0 {
+		normalizedOptions = []int{10, 20, 50}
+	}
+
+	return defaultPageSize, normalizedOptions
 }
 
 // getStringOrDefault 获取字符串值或默认值
@@ -1330,6 +1585,282 @@ func (s *SettingService) SetOverloadCooldownSettings(ctx context.Context, settin
 	return s.settingRepo.Set(ctx, SettingKeyOverloadCooldownSettings, string(data))
 }
 
+// GetOIDCConnectOAuthConfig 返回用于登录的“最终生效” OIDC 配置。
+//
+// 优先级：
+// - 若对应系统设置键存在，则覆盖 config.yaml/env 的值
+// - 否则回退到 config.yaml/env 的值
+func (s *SettingService) GetOIDCConnectOAuthConfig(ctx context.Context) (config.OIDCConnectConfig, error) {
+	if s == nil || s.cfg == nil {
+		return config.OIDCConnectConfig{}, infraerrors.ServiceUnavailable("CONFIG_NOT_READY", "config not loaded")
+	}
+
+	effective := s.cfg.OIDC
+
+	keys := []string{
+		SettingKeyOIDCConnectEnabled,
+		SettingKeyOIDCConnectProviderName,
+		SettingKeyOIDCConnectClientID,
+		SettingKeyOIDCConnectClientSecret,
+		SettingKeyOIDCConnectIssuerURL,
+		SettingKeyOIDCConnectDiscoveryURL,
+		SettingKeyOIDCConnectAuthorizeURL,
+		SettingKeyOIDCConnectTokenURL,
+		SettingKeyOIDCConnectUserInfoURL,
+		SettingKeyOIDCConnectJWKSURL,
+		SettingKeyOIDCConnectScopes,
+		SettingKeyOIDCConnectRedirectURL,
+		SettingKeyOIDCConnectFrontendRedirectURL,
+		SettingKeyOIDCConnectTokenAuthMethod,
+		SettingKeyOIDCConnectUsePKCE,
+		SettingKeyOIDCConnectValidateIDToken,
+		SettingKeyOIDCConnectAllowedSigningAlgs,
+		SettingKeyOIDCConnectClockSkewSeconds,
+		SettingKeyOIDCConnectRequireEmailVerified,
+		SettingKeyOIDCConnectUserInfoEmailPath,
+		SettingKeyOIDCConnectUserInfoIDPath,
+		SettingKeyOIDCConnectUserInfoUsernamePath,
+	}
+	settings, err := s.settingRepo.GetMultiple(ctx, keys)
+	if err != nil {
+		return config.OIDCConnectConfig{}, fmt.Errorf("get oidc connect settings: %w", err)
+	}
+
+	if raw, ok := settings[SettingKeyOIDCConnectEnabled]; ok {
+		effective.Enabled = raw == "true"
+	}
+	if v, ok := settings[SettingKeyOIDCConnectProviderName]; ok && strings.TrimSpace(v) != "" {
+		effective.ProviderName = strings.TrimSpace(v)
+	}
+	if v, ok := settings[SettingKeyOIDCConnectClientID]; ok && strings.TrimSpace(v) != "" {
+		effective.ClientID = strings.TrimSpace(v)
+	}
+	if v, ok := settings[SettingKeyOIDCConnectClientSecret]; ok && strings.TrimSpace(v) != "" {
+		effective.ClientSecret = strings.TrimSpace(v)
+	}
+	if v, ok := settings[SettingKeyOIDCConnectIssuerURL]; ok && strings.TrimSpace(v) != "" {
+		effective.IssuerURL = strings.TrimSpace(v)
+	}
+	if v, ok := settings[SettingKeyOIDCConnectDiscoveryURL]; ok && strings.TrimSpace(v) != "" {
+		effective.DiscoveryURL = strings.TrimSpace(v)
+	}
+	if v, ok := settings[SettingKeyOIDCConnectAuthorizeURL]; ok && strings.TrimSpace(v) != "" {
+		effective.AuthorizeURL = strings.TrimSpace(v)
+	}
+	if v, ok := settings[SettingKeyOIDCConnectTokenURL]; ok && strings.TrimSpace(v) != "" {
+		effective.TokenURL = strings.TrimSpace(v)
+	}
+	if v, ok := settings[SettingKeyOIDCConnectUserInfoURL]; ok && strings.TrimSpace(v) != "" {
+		effective.UserInfoURL = strings.TrimSpace(v)
+	}
+	if v, ok := settings[SettingKeyOIDCConnectJWKSURL]; ok && strings.TrimSpace(v) != "" {
+		effective.JWKSURL = strings.TrimSpace(v)
+	}
+	if v, ok := settings[SettingKeyOIDCConnectScopes]; ok && strings.TrimSpace(v) != "" {
+		effective.Scopes = strings.TrimSpace(v)
+	}
+	if v, ok := settings[SettingKeyOIDCConnectRedirectURL]; ok && strings.TrimSpace(v) != "" {
+		effective.RedirectURL = strings.TrimSpace(v)
+	}
+	if v, ok := settings[SettingKeyOIDCConnectFrontendRedirectURL]; ok && strings.TrimSpace(v) != "" {
+		effective.FrontendRedirectURL = strings.TrimSpace(v)
+	}
+	if v, ok := settings[SettingKeyOIDCConnectTokenAuthMethod]; ok && strings.TrimSpace(v) != "" {
+		effective.TokenAuthMethod = strings.ToLower(strings.TrimSpace(v))
+	}
+	if raw, ok := settings[SettingKeyOIDCConnectUsePKCE]; ok {
+		effective.UsePKCE = raw == "true"
+	}
+	if raw, ok := settings[SettingKeyOIDCConnectValidateIDToken]; ok {
+		effective.ValidateIDToken = raw == "true"
+	}
+	if v, ok := settings[SettingKeyOIDCConnectAllowedSigningAlgs]; ok && strings.TrimSpace(v) != "" {
+		effective.AllowedSigningAlgs = strings.TrimSpace(v)
+	}
+	if raw, ok := settings[SettingKeyOIDCConnectClockSkewSeconds]; ok && strings.TrimSpace(raw) != "" {
+		if parsed, parseErr := strconv.Atoi(strings.TrimSpace(raw)); parseErr == nil {
+			effective.ClockSkewSeconds = parsed
+		}
+	}
+	if raw, ok := settings[SettingKeyOIDCConnectRequireEmailVerified]; ok {
+		effective.RequireEmailVerified = raw == "true"
+	}
+	if v, ok := settings[SettingKeyOIDCConnectUserInfoEmailPath]; ok {
+		effective.UserInfoEmailPath = strings.TrimSpace(v)
+	}
+	if v, ok := settings[SettingKeyOIDCConnectUserInfoIDPath]; ok {
+		effective.UserInfoIDPath = strings.TrimSpace(v)
+	}
+	if v, ok := settings[SettingKeyOIDCConnectUserInfoUsernamePath]; ok {
+		effective.UserInfoUsernamePath = strings.TrimSpace(v)
+	}
+
+	if !effective.Enabled {
+		return config.OIDCConnectConfig{}, infraerrors.NotFound("OAUTH_DISABLED", "oauth login is disabled")
+	}
+	if strings.TrimSpace(effective.ProviderName) == "" {
+		effective.ProviderName = "OIDC"
+	}
+	if strings.TrimSpace(effective.ClientID) == "" {
+		return config.OIDCConnectConfig{}, infraerrors.InternalServer("OAUTH_CONFIG_INVALID", "oauth client id not configured")
+	}
+	if strings.TrimSpace(effective.IssuerURL) == "" {
+		return config.OIDCConnectConfig{}, infraerrors.InternalServer("OAUTH_CONFIG_INVALID", "oauth issuer url not configured")
+	}
+	if strings.TrimSpace(effective.RedirectURL) == "" {
+		return config.OIDCConnectConfig{}, infraerrors.InternalServer("OAUTH_CONFIG_INVALID", "oauth redirect url not configured")
+	}
+	if strings.TrimSpace(effective.FrontendRedirectURL) == "" {
+		return config.OIDCConnectConfig{}, infraerrors.InternalServer("OAUTH_CONFIG_INVALID", "oauth frontend redirect url not configured")
+	}
+	if !scopesContainOpenID(effective.Scopes) {
+		return config.OIDCConnectConfig{}, infraerrors.InternalServer("OAUTH_CONFIG_INVALID", "oauth scopes must contain openid")
+	}
+	if effective.ClockSkewSeconds < 0 || effective.ClockSkewSeconds > 600 {
+		return config.OIDCConnectConfig{}, infraerrors.InternalServer("OAUTH_CONFIG_INVALID", "oauth clock skew must be between 0 and 600")
+	}
+
+	if err := config.ValidateAbsoluteHTTPURL(effective.IssuerURL); err != nil {
+		return config.OIDCConnectConfig{}, infraerrors.InternalServer("OAUTH_CONFIG_INVALID", "oauth issuer url invalid")
+	}
+
+	discoveryURL := strings.TrimSpace(effective.DiscoveryURL)
+	if discoveryURL == "" {
+		discoveryURL = oidcDefaultDiscoveryURL(effective.IssuerURL)
+		effective.DiscoveryURL = discoveryURL
+	}
+	if discoveryURL != "" {
+		if err := config.ValidateAbsoluteHTTPURL(discoveryURL); err != nil {
+			return config.OIDCConnectConfig{}, infraerrors.InternalServer("OAUTH_CONFIG_INVALID", "oauth discovery url invalid")
+		}
+	}
+
+	needsDiscovery := strings.TrimSpace(effective.AuthorizeURL) == "" ||
+		strings.TrimSpace(effective.TokenURL) == "" ||
+		(effective.ValidateIDToken && strings.TrimSpace(effective.JWKSURL) == "")
+	if needsDiscovery && discoveryURL != "" {
+		metadata, resolveErr := oidcResolveProviderMetadata(ctx, discoveryURL)
+		if resolveErr != nil {
+			return config.OIDCConnectConfig{}, infraerrors.InternalServer("OAUTH_CONFIG_INVALID", "oauth discovery resolve failed").WithCause(resolveErr)
+		}
+		if strings.TrimSpace(effective.AuthorizeURL) == "" {
+			effective.AuthorizeURL = strings.TrimSpace(metadata.AuthorizationEndpoint)
+		}
+		if strings.TrimSpace(effective.TokenURL) == "" {
+			effective.TokenURL = strings.TrimSpace(metadata.TokenEndpoint)
+		}
+		if strings.TrimSpace(effective.UserInfoURL) == "" {
+			effective.UserInfoURL = strings.TrimSpace(metadata.UserInfoEndpoint)
+		}
+		if strings.TrimSpace(effective.JWKSURL) == "" {
+			effective.JWKSURL = strings.TrimSpace(metadata.JWKSURI)
+		}
+	}
+
+	if strings.TrimSpace(effective.AuthorizeURL) == "" {
+		return config.OIDCConnectConfig{}, infraerrors.InternalServer("OAUTH_CONFIG_INVALID", "oauth authorize url not configured")
+	}
+	if strings.TrimSpace(effective.TokenURL) == "" {
+		return config.OIDCConnectConfig{}, infraerrors.InternalServer("OAUTH_CONFIG_INVALID", "oauth token url not configured")
+	}
+	if err := config.ValidateAbsoluteHTTPURL(effective.AuthorizeURL); err != nil {
+		return config.OIDCConnectConfig{}, infraerrors.InternalServer("OAUTH_CONFIG_INVALID", "oauth authorize url invalid")
+	}
+	if err := config.ValidateAbsoluteHTTPURL(effective.TokenURL); err != nil {
+		return config.OIDCConnectConfig{}, infraerrors.InternalServer("OAUTH_CONFIG_INVALID", "oauth token url invalid")
+	}
+	if v := strings.TrimSpace(effective.UserInfoURL); v != "" {
+		if err := config.ValidateAbsoluteHTTPURL(v); err != nil {
+			return config.OIDCConnectConfig{}, infraerrors.InternalServer("OAUTH_CONFIG_INVALID", "oauth userinfo url invalid")
+		}
+	}
+	if effective.ValidateIDToken {
+		if strings.TrimSpace(effective.JWKSURL) == "" {
+			return config.OIDCConnectConfig{}, infraerrors.InternalServer("OAUTH_CONFIG_INVALID", "oauth jwks url not configured")
+		}
+		if strings.TrimSpace(effective.AllowedSigningAlgs) == "" {
+			return config.OIDCConnectConfig{}, infraerrors.InternalServer("OAUTH_CONFIG_INVALID", "oauth signing algs not configured")
+		}
+	}
+	if v := strings.TrimSpace(effective.JWKSURL); v != "" {
+		if err := config.ValidateAbsoluteHTTPURL(v); err != nil {
+			return config.OIDCConnectConfig{}, infraerrors.InternalServer("OAUTH_CONFIG_INVALID", "oauth jwks url invalid")
+		}
+	}
+	if err := config.ValidateAbsoluteHTTPURL(effective.RedirectURL); err != nil {
+		return config.OIDCConnectConfig{}, infraerrors.InternalServer("OAUTH_CONFIG_INVALID", "oauth redirect url invalid")
+	}
+	if err := config.ValidateFrontendRedirectURL(effective.FrontendRedirectURL); err != nil {
+		return config.OIDCConnectConfig{}, infraerrors.InternalServer("OAUTH_CONFIG_INVALID", "oauth frontend redirect url invalid")
+	}
+
+	method := strings.ToLower(strings.TrimSpace(effective.TokenAuthMethod))
+	switch method {
+	case "", "client_secret_post", "client_secret_basic":
+		if strings.TrimSpace(effective.ClientSecret) == "" {
+			return config.OIDCConnectConfig{}, infraerrors.InternalServer("OAUTH_CONFIG_INVALID", "oauth client secret not configured")
+		}
+	case "none":
+		if !effective.UsePKCE {
+			return config.OIDCConnectConfig{}, infraerrors.InternalServer("OAUTH_CONFIG_INVALID", "oauth pkce must be enabled when token_auth_method=none")
+		}
+	default:
+		return config.OIDCConnectConfig{}, infraerrors.InternalServer("OAUTH_CONFIG_INVALID", "oauth token_auth_method invalid")
+	}
+
+	return effective, nil
+}
+
+func scopesContainOpenID(scopes string) bool {
+	for _, scope := range strings.Fields(strings.ToLower(strings.TrimSpace(scopes))) {
+		if scope == "openid" {
+			return true
+		}
+	}
+	return false
+}
+
+type oidcProviderMetadata struct {
+	AuthorizationEndpoint string `json:"authorization_endpoint"`
+	TokenEndpoint         string `json:"token_endpoint"`
+	UserInfoEndpoint      string `json:"userinfo_endpoint"`
+	JWKSURI               string `json:"jwks_uri"`
+}
+
+func oidcDefaultDiscoveryURL(issuerURL string) string {
+	issuerURL = strings.TrimSpace(issuerURL)
+	if issuerURL == "" {
+		return ""
+	}
+	return strings.TrimRight(issuerURL, "/") + "/.well-known/openid-configuration"
+}
+
+func oidcResolveProviderMetadata(ctx context.Context, discoveryURL string) (*oidcProviderMetadata, error) {
+	discoveryURL = strings.TrimSpace(discoveryURL)
+	if discoveryURL == "" {
+		return nil, fmt.Errorf("discovery url is empty")
+	}
+
+	resp, err := req.C().
+		SetTimeout(15*time.Second).
+		R().
+		SetContext(ctx).
+		SetHeader("Accept", "application/json").
+		Get(discoveryURL)
+	if err != nil {
+		return nil, fmt.Errorf("request discovery document: %w", err)
+	}
+	if !resp.IsSuccessState() {
+		return nil, fmt.Errorf("discovery request failed: status=%d", resp.StatusCode)
+	}
+
+	metadata := &oidcProviderMetadata{}
+	if err := json.Unmarshal(resp.Bytes(), metadata); err != nil {
+		return nil, fmt.Errorf("parse discovery document: %w", err)
+	}
+	return metadata, nil
+}
+
 // GetStreamTimeoutSettings 获取流超时处理配置
 func (s *SettingService) GetStreamTimeoutSettings(ctx context.Context) (*StreamTimeoutSettings, error) {
 	value, err := s.settingRepo.GetValue(ctx, SettingKeyStreamTimeoutSettings)
@@ -1542,6 +2073,18 @@ func (s *SettingService) SetBetaPolicySettings(ctx context.Context, settings *Be
 		if !validScopes[rule.Scope] {
 			return fmt.Errorf("rule[%d]: invalid scope %q", i, rule.Scope)
 		}
+		// Validate model_whitelist patterns
+		for j, pattern := range rule.ModelWhitelist {
+			trimmed := strings.TrimSpace(pattern)
+			if trimmed == "" {
+				return fmt.Errorf("rule[%d]: model_whitelist[%d] cannot be empty", i, j)
+			}
+			settings.Rules[i].ModelWhitelist[j] = trimmed
+		}
+		// Validate fallback_action
+		if rule.FallbackAction != "" && !validActions[rule.FallbackAction] {
+			return fmt.Errorf("rule[%d]: invalid fallback_action %q", i, rule.FallbackAction)
+		}
 	}
 
 	data, err := json.Marshal(settings)
@@ -1582,608 +2125,4 @@ func (s *SettingService) SetStreamTimeoutSettings(ctx context.Context, settings 
 	}
 
 	return s.settingRepo.Set(ctx, SettingKeyStreamTimeoutSettings, string(data))
-}
-
-type soraS3ProfilesStore struct {
-	ActiveProfileID string                   `json:"active_profile_id"`
-	Items           []soraS3ProfileStoreItem `json:"items"`
-}
-
-type soraS3ProfileStoreItem struct {
-	ProfileID                string `json:"profile_id"`
-	Name                     string `json:"name"`
-	Enabled                  bool   `json:"enabled"`
-	Endpoint                 string `json:"endpoint"`
-	Region                   string `json:"region"`
-	Bucket                   string `json:"bucket"`
-	AccessKeyID              string `json:"access_key_id"`
-	SecretAccessKey          string `json:"secret_access_key"`
-	Prefix                   string `json:"prefix"`
-	ForcePathStyle           bool   `json:"force_path_style"`
-	CDNURL                   string `json:"cdn_url"`
-	DefaultStorageQuotaBytes int64  `json:"default_storage_quota_bytes"`
-	UpdatedAt                string `json:"updated_at"`
-}
-
-// GetSoraS3Settings 获取 Sora S3 存储配置（兼容旧单配置语义：返回当前激活配置）
-func (s *SettingService) GetSoraS3Settings(ctx context.Context) (*SoraS3Settings, error) {
-	profiles, err := s.ListSoraS3Profiles(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	activeProfile := pickActiveSoraS3Profile(profiles.Items, profiles.ActiveProfileID)
-	if activeProfile == nil {
-		return &SoraS3Settings{}, nil
-	}
-
-	return &SoraS3Settings{
-		Enabled:                   activeProfile.Enabled,
-		Endpoint:                  activeProfile.Endpoint,
-		Region:                    activeProfile.Region,
-		Bucket:                    activeProfile.Bucket,
-		AccessKeyID:               activeProfile.AccessKeyID,
-		SecretAccessKey:           activeProfile.SecretAccessKey,
-		SecretAccessKeyConfigured: activeProfile.SecretAccessKeyConfigured,
-		Prefix:                    activeProfile.Prefix,
-		ForcePathStyle:            activeProfile.ForcePathStyle,
-		CDNURL:                    activeProfile.CDNURL,
-		DefaultStorageQuotaBytes:  activeProfile.DefaultStorageQuotaBytes,
-	}, nil
-}
-
-// SetSoraS3Settings 更新 Sora S3 存储配置（兼容旧单配置语义：写入当前激活配置）
-func (s *SettingService) SetSoraS3Settings(ctx context.Context, settings *SoraS3Settings) error {
-	if settings == nil {
-		return fmt.Errorf("settings cannot be nil")
-	}
-
-	store, err := s.loadSoraS3ProfilesStore(ctx)
-	if err != nil {
-		return err
-	}
-
-	now := time.Now().UTC().Format(time.RFC3339)
-	activeIndex := findSoraS3ProfileIndex(store.Items, store.ActiveProfileID)
-	if activeIndex < 0 {
-		activeID := "default"
-		if hasSoraS3ProfileID(store.Items, activeID) {
-			activeID = fmt.Sprintf("default-%d", time.Now().Unix())
-		}
-		store.Items = append(store.Items, soraS3ProfileStoreItem{
-			ProfileID: activeID,
-			Name:      "Default",
-			UpdatedAt: now,
-		})
-		store.ActiveProfileID = activeID
-		activeIndex = len(store.Items) - 1
-	}
-
-	active := store.Items[activeIndex]
-	active.Enabled = settings.Enabled
-	active.Endpoint = strings.TrimSpace(settings.Endpoint)
-	active.Region = strings.TrimSpace(settings.Region)
-	active.Bucket = strings.TrimSpace(settings.Bucket)
-	active.AccessKeyID = strings.TrimSpace(settings.AccessKeyID)
-	active.Prefix = strings.TrimSpace(settings.Prefix)
-	active.ForcePathStyle = settings.ForcePathStyle
-	active.CDNURL = strings.TrimSpace(settings.CDNURL)
-	active.DefaultStorageQuotaBytes = maxInt64(settings.DefaultStorageQuotaBytes, 0)
-	if settings.SecretAccessKey != "" {
-		active.SecretAccessKey = settings.SecretAccessKey
-	}
-	active.UpdatedAt = now
-	store.Items[activeIndex] = active
-
-	return s.persistSoraS3ProfilesStore(ctx, store)
-}
-
-// ListSoraS3Profiles 获取 Sora S3 多配置列表
-func (s *SettingService) ListSoraS3Profiles(ctx context.Context) (*SoraS3ProfileList, error) {
-	store, err := s.loadSoraS3ProfilesStore(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return convertSoraS3ProfilesStore(store), nil
-}
-
-// CreateSoraS3Profile 创建 Sora S3 配置
-func (s *SettingService) CreateSoraS3Profile(ctx context.Context, profile *SoraS3Profile, setActive bool) (*SoraS3Profile, error) {
-	if profile == nil {
-		return nil, fmt.Errorf("profile cannot be nil")
-	}
-
-	profileID := strings.TrimSpace(profile.ProfileID)
-	if profileID == "" {
-		return nil, infraerrors.BadRequest("SORA_S3_PROFILE_ID_REQUIRED", "profile_id is required")
-	}
-	name := strings.TrimSpace(profile.Name)
-	if name == "" {
-		return nil, infraerrors.BadRequest("SORA_S3_PROFILE_NAME_REQUIRED", "name is required")
-	}
-
-	store, err := s.loadSoraS3ProfilesStore(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if hasSoraS3ProfileID(store.Items, profileID) {
-		return nil, ErrSoraS3ProfileExists
-	}
-
-	now := time.Now().UTC().Format(time.RFC3339)
-	store.Items = append(store.Items, soraS3ProfileStoreItem{
-		ProfileID:                profileID,
-		Name:                     name,
-		Enabled:                  profile.Enabled,
-		Endpoint:                 strings.TrimSpace(profile.Endpoint),
-		Region:                   strings.TrimSpace(profile.Region),
-		Bucket:                   strings.TrimSpace(profile.Bucket),
-		AccessKeyID:              strings.TrimSpace(profile.AccessKeyID),
-		SecretAccessKey:          profile.SecretAccessKey,
-		Prefix:                   strings.TrimSpace(profile.Prefix),
-		ForcePathStyle:           profile.ForcePathStyle,
-		CDNURL:                   strings.TrimSpace(profile.CDNURL),
-		DefaultStorageQuotaBytes: maxInt64(profile.DefaultStorageQuotaBytes, 0),
-		UpdatedAt:                now,
-	})
-
-	if setActive || store.ActiveProfileID == "" {
-		store.ActiveProfileID = profileID
-	}
-
-	if err := s.persistSoraS3ProfilesStore(ctx, store); err != nil {
-		return nil, err
-	}
-
-	profiles := convertSoraS3ProfilesStore(store)
-	created := findSoraS3ProfileByID(profiles.Items, profileID)
-	if created == nil {
-		return nil, ErrSoraS3ProfileNotFound
-	}
-	return created, nil
-}
-
-// UpdateSoraS3Profile 更新 Sora S3 配置
-func (s *SettingService) UpdateSoraS3Profile(ctx context.Context, profileID string, profile *SoraS3Profile) (*SoraS3Profile, error) {
-	if profile == nil {
-		return nil, fmt.Errorf("profile cannot be nil")
-	}
-
-	targetID := strings.TrimSpace(profileID)
-	if targetID == "" {
-		return nil, infraerrors.BadRequest("SORA_S3_PROFILE_ID_REQUIRED", "profile_id is required")
-	}
-
-	store, err := s.loadSoraS3ProfilesStore(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	targetIndex := findSoraS3ProfileIndex(store.Items, targetID)
-	if targetIndex < 0 {
-		return nil, ErrSoraS3ProfileNotFound
-	}
-
-	target := store.Items[targetIndex]
-	name := strings.TrimSpace(profile.Name)
-	if name == "" {
-		return nil, infraerrors.BadRequest("SORA_S3_PROFILE_NAME_REQUIRED", "name is required")
-	}
-	target.Name = name
-	target.Enabled = profile.Enabled
-	target.Endpoint = strings.TrimSpace(profile.Endpoint)
-	target.Region = strings.TrimSpace(profile.Region)
-	target.Bucket = strings.TrimSpace(profile.Bucket)
-	target.AccessKeyID = strings.TrimSpace(profile.AccessKeyID)
-	target.Prefix = strings.TrimSpace(profile.Prefix)
-	target.ForcePathStyle = profile.ForcePathStyle
-	target.CDNURL = strings.TrimSpace(profile.CDNURL)
-	target.DefaultStorageQuotaBytes = maxInt64(profile.DefaultStorageQuotaBytes, 0)
-	if profile.SecretAccessKey != "" {
-		target.SecretAccessKey = profile.SecretAccessKey
-	}
-	target.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
-	store.Items[targetIndex] = target
-
-	if err := s.persistSoraS3ProfilesStore(ctx, store); err != nil {
-		return nil, err
-	}
-
-	profiles := convertSoraS3ProfilesStore(store)
-	updated := findSoraS3ProfileByID(profiles.Items, targetID)
-	if updated == nil {
-		return nil, ErrSoraS3ProfileNotFound
-	}
-	return updated, nil
-}
-
-// DeleteSoraS3Profile 删除 Sora S3 配置
-func (s *SettingService) DeleteSoraS3Profile(ctx context.Context, profileID string) error {
-	targetID := strings.TrimSpace(profileID)
-	if targetID == "" {
-		return infraerrors.BadRequest("SORA_S3_PROFILE_ID_REQUIRED", "profile_id is required")
-	}
-
-	store, err := s.loadSoraS3ProfilesStore(ctx)
-	if err != nil {
-		return err
-	}
-
-	targetIndex := findSoraS3ProfileIndex(store.Items, targetID)
-	if targetIndex < 0 {
-		return ErrSoraS3ProfileNotFound
-	}
-
-	store.Items = append(store.Items[:targetIndex], store.Items[targetIndex+1:]...)
-	if store.ActiveProfileID == targetID {
-		store.ActiveProfileID = ""
-		if len(store.Items) > 0 {
-			store.ActiveProfileID = store.Items[0].ProfileID
-		}
-	}
-
-	return s.persistSoraS3ProfilesStore(ctx, store)
-}
-
-// SetActiveSoraS3Profile 设置激活的 Sora S3 配置
-func (s *SettingService) SetActiveSoraS3Profile(ctx context.Context, profileID string) (*SoraS3Profile, error) {
-	targetID := strings.TrimSpace(profileID)
-	if targetID == "" {
-		return nil, infraerrors.BadRequest("SORA_S3_PROFILE_ID_REQUIRED", "profile_id is required")
-	}
-
-	store, err := s.loadSoraS3ProfilesStore(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	targetIndex := findSoraS3ProfileIndex(store.Items, targetID)
-	if targetIndex < 0 {
-		return nil, ErrSoraS3ProfileNotFound
-	}
-
-	store.ActiveProfileID = targetID
-	store.Items[targetIndex].UpdatedAt = time.Now().UTC().Format(time.RFC3339)
-	if err := s.persistSoraS3ProfilesStore(ctx, store); err != nil {
-		return nil, err
-	}
-
-	profiles := convertSoraS3ProfilesStore(store)
-	active := pickActiveSoraS3Profile(profiles.Items, profiles.ActiveProfileID)
-	if active == nil {
-		return nil, ErrSoraS3ProfileNotFound
-	}
-	return active, nil
-}
-
-func (s *SettingService) loadSoraS3ProfilesStore(ctx context.Context) (*soraS3ProfilesStore, error) {
-	raw, err := s.settingRepo.GetValue(ctx, SettingKeySoraS3Profiles)
-	if err == nil {
-		trimmed := strings.TrimSpace(raw)
-		if trimmed == "" {
-			return &soraS3ProfilesStore{}, nil
-		}
-		var store soraS3ProfilesStore
-		if unmarshalErr := json.Unmarshal([]byte(trimmed), &store); unmarshalErr != nil {
-			legacy, legacyErr := s.getLegacySoraS3Settings(ctx)
-			if legacyErr != nil {
-				return nil, fmt.Errorf("unmarshal sora s3 profiles: %w", unmarshalErr)
-			}
-			if isEmptyLegacySoraS3Settings(legacy) {
-				return &soraS3ProfilesStore{}, nil
-			}
-			now := time.Now().UTC().Format(time.RFC3339)
-			return &soraS3ProfilesStore{
-				ActiveProfileID: "default",
-				Items: []soraS3ProfileStoreItem{
-					{
-						ProfileID:                "default",
-						Name:                     "Default",
-						Enabled:                  legacy.Enabled,
-						Endpoint:                 strings.TrimSpace(legacy.Endpoint),
-						Region:                   strings.TrimSpace(legacy.Region),
-						Bucket:                   strings.TrimSpace(legacy.Bucket),
-						AccessKeyID:              strings.TrimSpace(legacy.AccessKeyID),
-						SecretAccessKey:          legacy.SecretAccessKey,
-						Prefix:                   strings.TrimSpace(legacy.Prefix),
-						ForcePathStyle:           legacy.ForcePathStyle,
-						CDNURL:                   strings.TrimSpace(legacy.CDNURL),
-						DefaultStorageQuotaBytes: maxInt64(legacy.DefaultStorageQuotaBytes, 0),
-						UpdatedAt:                now,
-					},
-				},
-			}, nil
-		}
-		normalized := normalizeSoraS3ProfilesStore(store)
-		return &normalized, nil
-	}
-
-	if !errors.Is(err, ErrSettingNotFound) {
-		return nil, fmt.Errorf("get sora s3 profiles: %w", err)
-	}
-
-	legacy, legacyErr := s.getLegacySoraS3Settings(ctx)
-	if legacyErr != nil {
-		return nil, legacyErr
-	}
-	if isEmptyLegacySoraS3Settings(legacy) {
-		return &soraS3ProfilesStore{}, nil
-	}
-
-	now := time.Now().UTC().Format(time.RFC3339)
-	return &soraS3ProfilesStore{
-		ActiveProfileID: "default",
-		Items: []soraS3ProfileStoreItem{
-			{
-				ProfileID:                "default",
-				Name:                     "Default",
-				Enabled:                  legacy.Enabled,
-				Endpoint:                 strings.TrimSpace(legacy.Endpoint),
-				Region:                   strings.TrimSpace(legacy.Region),
-				Bucket:                   strings.TrimSpace(legacy.Bucket),
-				AccessKeyID:              strings.TrimSpace(legacy.AccessKeyID),
-				SecretAccessKey:          legacy.SecretAccessKey,
-				Prefix:                   strings.TrimSpace(legacy.Prefix),
-				ForcePathStyle:           legacy.ForcePathStyle,
-				CDNURL:                   strings.TrimSpace(legacy.CDNURL),
-				DefaultStorageQuotaBytes: maxInt64(legacy.DefaultStorageQuotaBytes, 0),
-				UpdatedAt:                now,
-			},
-		},
-	}, nil
-}
-
-func (s *SettingService) persistSoraS3ProfilesStore(ctx context.Context, store *soraS3ProfilesStore) error {
-	if store == nil {
-		return fmt.Errorf("sora s3 profiles store cannot be nil")
-	}
-
-	normalized := normalizeSoraS3ProfilesStore(*store)
-	data, err := json.Marshal(normalized)
-	if err != nil {
-		return fmt.Errorf("marshal sora s3 profiles: %w", err)
-	}
-
-	updates := map[string]string{
-		SettingKeySoraS3Profiles: string(data),
-	}
-
-	active := pickActiveSoraS3ProfileFromStore(normalized.Items, normalized.ActiveProfileID)
-	if active == nil {
-		updates[SettingKeySoraS3Enabled] = "false"
-		updates[SettingKeySoraS3Endpoint] = ""
-		updates[SettingKeySoraS3Region] = ""
-		updates[SettingKeySoraS3Bucket] = ""
-		updates[SettingKeySoraS3AccessKeyID] = ""
-		updates[SettingKeySoraS3Prefix] = ""
-		updates[SettingKeySoraS3ForcePathStyle] = "false"
-		updates[SettingKeySoraS3CDNURL] = ""
-		updates[SettingKeySoraDefaultStorageQuotaBytes] = "0"
-		updates[SettingKeySoraS3SecretAccessKey] = ""
-	} else {
-		updates[SettingKeySoraS3Enabled] = strconv.FormatBool(active.Enabled)
-		updates[SettingKeySoraS3Endpoint] = strings.TrimSpace(active.Endpoint)
-		updates[SettingKeySoraS3Region] = strings.TrimSpace(active.Region)
-		updates[SettingKeySoraS3Bucket] = strings.TrimSpace(active.Bucket)
-		updates[SettingKeySoraS3AccessKeyID] = strings.TrimSpace(active.AccessKeyID)
-		updates[SettingKeySoraS3Prefix] = strings.TrimSpace(active.Prefix)
-		updates[SettingKeySoraS3ForcePathStyle] = strconv.FormatBool(active.ForcePathStyle)
-		updates[SettingKeySoraS3CDNURL] = strings.TrimSpace(active.CDNURL)
-		updates[SettingKeySoraDefaultStorageQuotaBytes] = strconv.FormatInt(maxInt64(active.DefaultStorageQuotaBytes, 0), 10)
-		updates[SettingKeySoraS3SecretAccessKey] = active.SecretAccessKey
-	}
-
-	if err := s.settingRepo.SetMultiple(ctx, updates); err != nil {
-		return err
-	}
-
-	if s.onUpdate != nil {
-		s.onUpdate()
-	}
-	if s.onS3Update != nil {
-		s.onS3Update()
-	}
-	return nil
-}
-
-func (s *SettingService) getLegacySoraS3Settings(ctx context.Context) (*SoraS3Settings, error) {
-	keys := []string{
-		SettingKeySoraS3Enabled,
-		SettingKeySoraS3Endpoint,
-		SettingKeySoraS3Region,
-		SettingKeySoraS3Bucket,
-		SettingKeySoraS3AccessKeyID,
-		SettingKeySoraS3SecretAccessKey,
-		SettingKeySoraS3Prefix,
-		SettingKeySoraS3ForcePathStyle,
-		SettingKeySoraS3CDNURL,
-		SettingKeySoraDefaultStorageQuotaBytes,
-	}
-
-	values, err := s.settingRepo.GetMultiple(ctx, keys)
-	if err != nil {
-		return nil, fmt.Errorf("get legacy sora s3 settings: %w", err)
-	}
-
-	result := &SoraS3Settings{
-		Enabled:                   values[SettingKeySoraS3Enabled] == "true",
-		Endpoint:                  values[SettingKeySoraS3Endpoint],
-		Region:                    values[SettingKeySoraS3Region],
-		Bucket:                    values[SettingKeySoraS3Bucket],
-		AccessKeyID:               values[SettingKeySoraS3AccessKeyID],
-		SecretAccessKey:           values[SettingKeySoraS3SecretAccessKey],
-		SecretAccessKeyConfigured: values[SettingKeySoraS3SecretAccessKey] != "",
-		Prefix:                    values[SettingKeySoraS3Prefix],
-		ForcePathStyle:            values[SettingKeySoraS3ForcePathStyle] == "true",
-		CDNURL:                    values[SettingKeySoraS3CDNURL],
-	}
-	if v, parseErr := strconv.ParseInt(values[SettingKeySoraDefaultStorageQuotaBytes], 10, 64); parseErr == nil {
-		result.DefaultStorageQuotaBytes = v
-	}
-	return result, nil
-}
-
-func normalizeSoraS3ProfilesStore(store soraS3ProfilesStore) soraS3ProfilesStore {
-	seen := make(map[string]struct{}, len(store.Items))
-	normalized := soraS3ProfilesStore{
-		ActiveProfileID: strings.TrimSpace(store.ActiveProfileID),
-		Items:           make([]soraS3ProfileStoreItem, 0, len(store.Items)),
-	}
-	now := time.Now().UTC().Format(time.RFC3339)
-
-	for idx := range store.Items {
-		item := store.Items[idx]
-		item.ProfileID = strings.TrimSpace(item.ProfileID)
-		if item.ProfileID == "" {
-			item.ProfileID = fmt.Sprintf("profile-%d", idx+1)
-		}
-		if _, exists := seen[item.ProfileID]; exists {
-			continue
-		}
-		seen[item.ProfileID] = struct{}{}
-
-		item.Name = strings.TrimSpace(item.Name)
-		if item.Name == "" {
-			item.Name = item.ProfileID
-		}
-		item.Endpoint = strings.TrimSpace(item.Endpoint)
-		item.Region = strings.TrimSpace(item.Region)
-		item.Bucket = strings.TrimSpace(item.Bucket)
-		item.AccessKeyID = strings.TrimSpace(item.AccessKeyID)
-		item.Prefix = strings.TrimSpace(item.Prefix)
-		item.CDNURL = strings.TrimSpace(item.CDNURL)
-		item.DefaultStorageQuotaBytes = maxInt64(item.DefaultStorageQuotaBytes, 0)
-		item.UpdatedAt = strings.TrimSpace(item.UpdatedAt)
-		if item.UpdatedAt == "" {
-			item.UpdatedAt = now
-		}
-		normalized.Items = append(normalized.Items, item)
-	}
-
-	if len(normalized.Items) == 0 {
-		normalized.ActiveProfileID = ""
-		return normalized
-	}
-
-	if findSoraS3ProfileIndex(normalized.Items, normalized.ActiveProfileID) >= 0 {
-		return normalized
-	}
-
-	normalized.ActiveProfileID = normalized.Items[0].ProfileID
-	return normalized
-}
-
-func convertSoraS3ProfilesStore(store *soraS3ProfilesStore) *SoraS3ProfileList {
-	if store == nil {
-		return &SoraS3ProfileList{}
-	}
-	items := make([]SoraS3Profile, 0, len(store.Items))
-	for idx := range store.Items {
-		item := store.Items[idx]
-		items = append(items, SoraS3Profile{
-			ProfileID:                 item.ProfileID,
-			Name:                      item.Name,
-			IsActive:                  item.ProfileID == store.ActiveProfileID,
-			Enabled:                   item.Enabled,
-			Endpoint:                  item.Endpoint,
-			Region:                    item.Region,
-			Bucket:                    item.Bucket,
-			AccessKeyID:               item.AccessKeyID,
-			SecretAccessKey:           item.SecretAccessKey,
-			SecretAccessKeyConfigured: item.SecretAccessKey != "",
-			Prefix:                    item.Prefix,
-			ForcePathStyle:            item.ForcePathStyle,
-			CDNURL:                    item.CDNURL,
-			DefaultStorageQuotaBytes:  item.DefaultStorageQuotaBytes,
-			UpdatedAt:                 item.UpdatedAt,
-		})
-	}
-	return &SoraS3ProfileList{
-		ActiveProfileID: store.ActiveProfileID,
-		Items:           items,
-	}
-}
-
-func pickActiveSoraS3Profile(items []SoraS3Profile, activeProfileID string) *SoraS3Profile {
-	for idx := range items {
-		if items[idx].ProfileID == activeProfileID {
-			return &items[idx]
-		}
-	}
-	if len(items) == 0 {
-		return nil
-	}
-	return &items[0]
-}
-
-func findSoraS3ProfileByID(items []SoraS3Profile, profileID string) *SoraS3Profile {
-	for idx := range items {
-		if items[idx].ProfileID == profileID {
-			return &items[idx]
-		}
-	}
-	return nil
-}
-
-func pickActiveSoraS3ProfileFromStore(items []soraS3ProfileStoreItem, activeProfileID string) *soraS3ProfileStoreItem {
-	for idx := range items {
-		if items[idx].ProfileID == activeProfileID {
-			return &items[idx]
-		}
-	}
-	if len(items) == 0 {
-		return nil
-	}
-	return &items[0]
-}
-
-func findSoraS3ProfileIndex(items []soraS3ProfileStoreItem, profileID string) int {
-	for idx := range items {
-		if items[idx].ProfileID == profileID {
-			return idx
-		}
-	}
-	return -1
-}
-
-func hasSoraS3ProfileID(items []soraS3ProfileStoreItem, profileID string) bool {
-	return findSoraS3ProfileIndex(items, profileID) >= 0
-}
-
-func isEmptyLegacySoraS3Settings(settings *SoraS3Settings) bool {
-	if settings == nil {
-		return true
-	}
-	if settings.Enabled {
-		return false
-	}
-	if strings.TrimSpace(settings.Endpoint) != "" {
-		return false
-	}
-	if strings.TrimSpace(settings.Region) != "" {
-		return false
-	}
-	if strings.TrimSpace(settings.Bucket) != "" {
-		return false
-	}
-	if strings.TrimSpace(settings.AccessKeyID) != "" {
-		return false
-	}
-	if settings.SecretAccessKey != "" {
-		return false
-	}
-	if strings.TrimSpace(settings.Prefix) != "" {
-		return false
-	}
-	if strings.TrimSpace(settings.CDNURL) != "" {
-		return false
-	}
-	return settings.DefaultStorageQuotaBytes == 0
-}
-
-func maxInt64(value int64, min int64) int64 {
-	if value < min {
-		return min
-	}
-	return value
 }

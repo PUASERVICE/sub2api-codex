@@ -48,7 +48,15 @@
       </template>
 
       <template #table>
-        <DataTable :columns="columns" :data="channels" :loading="loading">
+        <DataTable
+          :columns="columns"
+          :data="channels"
+          :loading="loading"
+          :server-side-sort="true"
+          default-sort-key="created_at"
+          default-sort-order="desc"
+          @sort="handleSort"
+        >
           <template #cell-name="{ value }">
             <span class="font-medium text-gray-900 dark:text-white">{{ value }}</span>
           </template>
@@ -486,6 +494,10 @@ const pagination = reactive({
   page_size: getPersistedPageSize(),
   total: 0
 })
+const sortState = reactive({
+  sort_by: 'created_at',
+  sort_order: 'desc' as 'asc' | 'desc'
+})
 
 // Dialog state
 const showDialog = ref(false)
@@ -523,7 +535,6 @@ function getPlatformTextColor(platform: string): string {
     case 'openai': return 'text-emerald-600 dark:text-emerald-400'
     case 'gemini': return 'text-blue-600 dark:text-blue-400'
     case 'antigravity': return 'text-purple-600 dark:text-purple-400'
-    case 'sora': return 'text-rose-600 dark:text-rose-400'
     default: return 'text-gray-600 dark:text-gray-400'
   }
 }
@@ -534,7 +545,6 @@ function getRateBadgeClass(platform: string): string {
     case 'openai': return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
     case 'gemini': return 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
     case 'antigravity': return 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400'
-    case 'sora': return 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400'
     default: return 'bg-gray-100 text-gray-700 dark:bg-gray-900/30 dark:text-gray-400'
   }
 }
@@ -768,7 +778,9 @@ async function loadChannels() {
   try {
     const response = await adminAPI.channels.list(pagination.page, pagination.page_size, {
       status: filters.status || undefined,
-      search: searchQuery.value || undefined
+      search: searchQuery.value || undefined,
+      sort_by: sortState.sort_by,
+      sort_order: sortState.sort_order
     }, { signal: ctrl.signal })
 
     if (ctrl.signal.aborted || abortController !== ctrl) return
@@ -823,6 +835,13 @@ function handlePageChange(page: number) {
 
 function handlePageSizeChange(pageSize: number) {
   pagination.page_size = pageSize
+  pagination.page = 1
+  loadChannels()
+}
+
+function handleSort(key: string, order: 'asc' | 'desc') {
+  sortState.sort_by = key
+  sortState.sort_order = order
   pagination.page = 1
   loadChannels()
 }

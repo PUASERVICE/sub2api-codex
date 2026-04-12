@@ -1,6 +1,8 @@
 package config
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -223,6 +225,23 @@ func TestLoadSchedulingConfigFromEnv(t *testing.T) {
 	}
 }
 
+func TestLoadForcedCodexInstructionsTemplate(t *testing.T) {
+	resetViperWithJWTSecret(t)
+
+	tempDir := t.TempDir()
+	templatePath := filepath.Join(tempDir, "codex-instructions.md.tmpl")
+	configPath := filepath.Join(tempDir, "config.yaml")
+
+	require.NoError(t, os.WriteFile(templatePath, []byte("server-prefix\n\n{{ .ExistingInstructions }}"), 0o644))
+	require.NoError(t, os.WriteFile(configPath, []byte("gateway:\n  forced_codex_instructions_template_file: \""+templatePath+"\"\n"), 0o644))
+	t.Setenv("DATA_DIR", tempDir)
+
+	cfg, err := Load()
+	require.NoError(t, err)
+	require.Equal(t, templatePath, cfg.Gateway.ForcedCodexInstructionsTemplateFile)
+	require.Equal(t, "server-prefix\n\n{{ .ExistingInstructions }}", cfg.Gateway.ForcedCodexInstructionsTemplate)
+}
+
 func TestLoadDefaultSecurityToggles(t *testing.T) {
 	resetViperWithJWTSecret(t)
 
@@ -348,6 +367,60 @@ func TestValidateLinuxDoPKCERequiredForPublicClient(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "linuxdo_connect.use_pkce") {
 		t.Fatalf("Validate() expected use_pkce error, got: %v", err)
+	}
+}
+
+func TestValidateOIDCScopesMustContainOpenID(t *testing.T) {
+	resetViperWithJWTSecret(t)
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+
+	cfg.OIDC.Enabled = true
+	cfg.OIDC.ClientID = "oidc-client"
+	cfg.OIDC.ClientSecret = "oidc-secret"
+	cfg.OIDC.IssuerURL = "https://issuer.example.com"
+	cfg.OIDC.AuthorizeURL = "https://issuer.example.com/auth"
+	cfg.OIDC.TokenURL = "https://issuer.example.com/token"
+	cfg.OIDC.JWKSURL = "https://issuer.example.com/jwks"
+	cfg.OIDC.RedirectURL = "https://example.com/api/v1/auth/oauth/oidc/callback"
+	cfg.OIDC.FrontendRedirectURL = "/auth/oidc/callback"
+	cfg.OIDC.Scopes = "profile email"
+
+	err = cfg.Validate()
+	if err == nil {
+		t.Fatalf("Validate() expected error when scopes do not include openid, got nil")
+	}
+	if !strings.Contains(err.Error(), "oidc_connect.scopes") {
+		t.Fatalf("Validate() expected oidc_connect.scopes error, got: %v", err)
+	}
+}
+
+func TestValidateOIDCAllowsIssuerOnlyEndpointsWithDiscoveryFallback(t *testing.T) {
+	resetViperWithJWTSecret(t)
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+
+	cfg.OIDC.Enabled = true
+	cfg.OIDC.ClientID = "oidc-client"
+	cfg.OIDC.ClientSecret = "oidc-secret"
+	cfg.OIDC.IssuerURL = "https://issuer.example.com"
+	cfg.OIDC.AuthorizeURL = ""
+	cfg.OIDC.TokenURL = ""
+	cfg.OIDC.JWKSURL = ""
+	cfg.OIDC.RedirectURL = "https://example.com/api/v1/auth/oauth/oidc/callback"
+	cfg.OIDC.FrontendRedirectURL = "/auth/oidc/callback"
+	cfg.OIDC.Scopes = "openid email profile"
+	cfg.OIDC.ValidateIDToken = true
+
+	err = cfg.Validate()
+	if err != nil {
+		t.Fatalf("Validate() expected issuer-only OIDC config to pass with discovery fallback, got: %v", err)
 	}
 }
 
@@ -1551,94 +1624,6 @@ func TestValidateConfig_LogRequiredAndRotationBounds(t *testing.T) {
 				t.Fatalf("Validate() error = %v, want %q", err, tt.wantErr)
 			}
 		})
-	}
-}
-
-func TestSoraCurlCFFISidecarDefaults(t *testing.T) {
-	resetViperWithJWTSecret(t)
-
-	cfg, err := Load()
-	if err != nil {
-		t.Fatalf("Load() error: %v", err)
-	}
-
-	if !cfg.Sora.Client.CurlCFFISidecar.Enabled {
-		t.Fatalf("Sora curl_cffi sidecar should be enabled by default")
-	}
-	if cfg.Sora.Client.CloudflareChallengeCooldownSeconds <= 0 {
-		t.Fatalf("Sora cloudflare challenge cooldown should be positive by default")
-	}
-	if cfg.Sora.Client.CurlCFFISidecar.BaseURL == "" {
-		t.Fatalf("Sora curl_cffi sidecar base_url should not be empty by default")
-	}
-	if cfg.Sora.Client.CurlCFFISidecar.Impersonate == "" {
-		t.Fatalf("Sora curl_cffi sidecar impersonate should not be empty by default")
-	}
-	if !cfg.Sora.Client.CurlCFFISidecar.SessionReuseEnabled {
-		t.Fatalf("Sora curl_cffi sidecar session reuse should be enabled by default")
-	}
-	if cfg.Sora.Client.CurlCFFISidecar.SessionTTLSeconds <= 0 {
-		t.Fatalf("Sora curl_cffi sidecar session ttl should be positive by default")
-	}
-}
-
-func TestValidateSoraCurlCFFISidecarRequired(t *testing.T) {
-	resetViperWithJWTSecret(t)
-
-	cfg, err := Load()
-	if err != nil {
-		t.Fatalf("Load() error: %v", err)
-	}
-
-	cfg.Sora.Client.CurlCFFISidecar.Enabled = false
-	err = cfg.Validate()
-	if err == nil || !strings.Contains(err.Error(), "sora.client.curl_cffi_sidecar.enabled must be true") {
-		t.Fatalf("Validate() error = %v, want sidecar enabled error", err)
-	}
-}
-
-func TestValidateSoraCurlCFFISidecarBaseURLRequired(t *testing.T) {
-	resetViperWithJWTSecret(t)
-
-	cfg, err := Load()
-	if err != nil {
-		t.Fatalf("Load() error: %v", err)
-	}
-
-	cfg.Sora.Client.CurlCFFISidecar.BaseURL = "   "
-	err = cfg.Validate()
-	if err == nil || !strings.Contains(err.Error(), "sora.client.curl_cffi_sidecar.base_url is required") {
-		t.Fatalf("Validate() error = %v, want sidecar base_url required error", err)
-	}
-}
-
-func TestValidateSoraCurlCFFISidecarSessionTTLNonNegative(t *testing.T) {
-	resetViperWithJWTSecret(t)
-
-	cfg, err := Load()
-	if err != nil {
-		t.Fatalf("Load() error: %v", err)
-	}
-
-	cfg.Sora.Client.CurlCFFISidecar.SessionTTLSeconds = -1
-	err = cfg.Validate()
-	if err == nil || !strings.Contains(err.Error(), "sora.client.curl_cffi_sidecar.session_ttl_seconds must be non-negative") {
-		t.Fatalf("Validate() error = %v, want sidecar session ttl error", err)
-	}
-}
-
-func TestValidateSoraCloudflareChallengeCooldownNonNegative(t *testing.T) {
-	resetViperWithJWTSecret(t)
-
-	cfg, err := Load()
-	if err != nil {
-		t.Fatalf("Load() error: %v", err)
-	}
-
-	cfg.Sora.Client.CloudflareChallengeCooldownSeconds = -1
-	err = cfg.Validate()
-	if err == nil || !strings.Contains(err.Error(), "sora.client.cloudflare_challenge_cooldown_seconds must be non-negative") {
-		t.Fatalf("Validate() error = %v, want cloudflare cooldown error", err)
 	}
 }
 
