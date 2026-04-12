@@ -49,8 +49,7 @@ ENV GOPROXY=${GOPROXY}
 ENV GOSUMDB=${GOSUMDB}
 
 # Install build dependencies
-RUN apk add --update-cache --no-progress git ca-certificates tzdata \
-    && rm -rf /var/cache/apk/*
+RUN apk add --no-cache git ca-certificates tzdata
 
 WORKDIR /app/backend
 
@@ -90,13 +89,12 @@ LABEL description="Sub2API - AI API Gateway Platform"
 LABEL org.opencontainers.image.source="https://github.com/Wei-Shaw/sub2api"
 
 # Install runtime dependencies
-RUN apk add --update-cache --no-progress \
+RUN apk add --no-cache \
     ca-certificates \
     tzdata \
     curl \
     su-exec \
-    postgresql-client \
-    && rm -rf /var/cache/apk/*
+    postgresql-client
 
 # Create non-root user (avoid fixed uid/gid conflicts in base image)
 RUN addgroup -S sub2api && \

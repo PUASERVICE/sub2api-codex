@@ -264,6 +264,15 @@ func TestLoadDefaultSecurityToggles(t *testing.T) {
 	}
 }
 
+func TestLoadTrustedProxiesFromEnvCSV(t *testing.T) {
+	resetViperWithJWTSecret(t)
+	t.Setenv("SERVER_TRUSTED_PROXIES", "127.0.0.1/32, 172.16.0.0/12,127.0.0.1/32, ::1/128")
+
+	cfg, err := Load()
+	require.NoError(t, err)
+	require.Equal(t, []string{"127.0.0.1/32", "172.16.0.0/12", "::1/128"}, cfg.Server.TrustedProxies)
+}
+
 func TestLoadDefaultServerMode(t *testing.T) {
 	resetViperWithJWTSecret(t)
 

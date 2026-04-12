@@ -153,8 +153,10 @@ services:
       # =======================================================================
       # Security Configuration (URL Allowlist)
       # =======================================================================
+      # Trusted proxies for X-Forwarded-For (comma-separated CIDR/IP list)
+      - SERVER_TRUSTED_PROXIES=${SERVER_TRUSTED_PROXIES:-127.0.0.1/32,::1/128,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16}
       # Enable URL allowlist validation (false to skip allowlist checks)
-      - SECURITY_URL_ALLOWLIST_ENABLED=${SECURITY_URL_ALLOWLIST_ENABLED:-false}
+      - SECURITY_URL_ALLOWLIST_ENABLED=${SECURITY_URL_ALLOWLIST_ENABLED:-true}
       # Allow insecure HTTP URLs when allowlist is disabled (default: false, requires https)
       - SECURITY_URL_ALLOWLIST_ALLOW_INSECURE_HTTP=${SECURITY_URL_ALLOWLIST_ALLOW_INSECURE_HTTP:-false}
       # Allow private IP addresses for upstream/pricing/CRS (for internal deployments)

@@ -997,6 +997,12 @@ func load(allowMissingJWTSecret bool) (*Config, error) {
 	if cfg.Server.Mode == "" {
 		cfg.Server.Mode = "debug"
 	}
+	cfg.Server.TrustedProxies = parseCSVList(strings.Join(cfg.Server.TrustedProxies, ","))
+	// 显式支持 SERVER_TRUSTED_PROXIES（逗号分隔），便于容器环境注入 CIDR 列表。
+	// 例如：SERVER_TRUSTED_PROXIES="127.0.0.1/32,172.16.0.0/12"
+	if rawTrustedProxies, ok := os.LookupEnv("SERVER_TRUSTED_PROXIES"); ok {
+		cfg.Server.TrustedProxies = parseCSVList(rawTrustedProxies)
+	}
 	cfg.Server.FrontendURL = strings.TrimSpace(cfg.Server.FrontendURL)
 	cfg.JWT.Secret = strings.TrimSpace(cfg.JWT.Secret)
 	cfg.LinuxDo.ClientID = strings.TrimSpace(cfg.LinuxDo.ClientID)
@@ -1108,6 +1114,31 @@ func load(allowMissingJWTSecret bool) (*Config, error) {
 	}
 
 	return &cfg, nil
+}
+
+func parseCSVList(raw string) []string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	parts := strings.Split(raw, ",")
+	seen := make(map[string]struct{}, len(parts))
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		v := strings.TrimSpace(part)
+		if v == "" {
+			continue
+		}
+		if _, ok := seen[v]; ok {
+			continue
+		}
+		seen[v] = struct{}{}
+		out = append(out, v)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 func setDefaults() {

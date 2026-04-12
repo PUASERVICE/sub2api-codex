@@ -26,7 +26,12 @@ server:
   frontend_url: ""
   # Trusted proxies for X-Forwarded-For parsing (CIDR/IP). Empty disables trusted proxies.
   # 信任的代理地址（CIDR/IP 格式），用于解析 X-Forwarded-For 头。留空则禁用代理信任。
-  trusted_proxies: []
+  trusted_proxies:
+    - "127.0.0.1/32"
+    - "::1/128"
+    - "10.0.0.0/8"
+    - "172.16.0.0/12"
+    - "192.168.0.0/16"
   # Global max request body size in bytes (default: 256MB)
   # 全局最大请求体大小（字节，默认 256MB）
   # Applies to all requests, especially important for h2c first request memory protection
@@ -86,7 +91,7 @@ security:
   url_allowlist:
     # Enable URL allowlist validation (disable to skip all URL checks)
     # 启用 URL 白名单验证（禁用则跳过所有 URL 检查）
-    enabled: false
+    enabled: true
     # Allowed upstream hosts for API proxying
     # 允许代理的上游 API 主机列表
     upstream_hosts:
