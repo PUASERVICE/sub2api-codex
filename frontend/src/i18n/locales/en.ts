@@ -2045,10 +2045,10 @@ export default {
       },
       status: {
         active: 'Active',
-        inactive: 'Inactive',
+        inactive: 'Deactivated',
         error: 'Error',
         cooldown: 'Cooldown',
-        paused: 'Paused',
+        paused: 'Scheduling Paused',
         limited: 'Limited',
         rateLimited: 'Rate Limited',
         overloaded: 'Overloaded',

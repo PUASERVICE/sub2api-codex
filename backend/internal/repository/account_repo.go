@@ -500,6 +500,30 @@ func (r *accountRepository) ListWithFilters(ctx context.Context, params paginati
 					)
 				}),
 			)
+		case "inactive":
+			q = q.Where(
+				dbpredicate.Account(func(s *entsql.Selector) {
+					col := s.C(dbaccount.FieldStatus)
+					s.Where(entsql.Or(
+						entsql.EQ(col, "inactive"),
+						entsql.EQ(col, service.StatusDisabled),
+					))
+				}),
+			)
+		case "paused":
+			q = q.Where(
+				dbaccount.SchedulableEQ(false),
+				dbaccount.StatusNEQ(service.StatusError),
+				dbpredicate.Account(func(s *entsql.Selector) {
+					tempCol := s.C("temp_unschedulable_until")
+					s.Where(
+						entsql.Or(
+							entsql.IsNull(tempCol),
+							entsql.LTE(tempCol, entsql.Expr("NOW()")),
+						),
+					)
+				}),
+			)
 		case "rate_limited":
 			q = q.Where(dbaccount.RateLimitResetAtGT(time.Now()))
 		case "temp_unschedulable":

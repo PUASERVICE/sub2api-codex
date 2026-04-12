@@ -2237,10 +2237,10 @@ export default {
       },
       status: {
         active: '正常',
-        inactive: '停用',
+        inactive: '已停用',
         error: '错误',
         cooldown: '冷却中',
-        paused: '暂停',
+        paused: '已暂停',
         limited: '限流',
         rateLimited: '限流中',
         overloaded: '过载中',
